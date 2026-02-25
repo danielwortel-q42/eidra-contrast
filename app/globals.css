@@ -1,3 +1,40 @@
+/* ── Fonts ── */
+@font-face {
+  font-family: 'Eidra Sans';
+  src: url('/fonts/EidraSans-Bold.woff2') format('woff2'),
+       url('/fonts/EidraSans-Bold.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Eidra Sans';
+  src: url('/fonts/EidraSans-BoldItalic.woff2') format('woff2'),
+       url('/fonts/EidraSans-BoldItalic.woff') format('woff');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Eidra Sans';
+  src: url('/fonts/EidraSans-Regular.woff2') format('woff2'),
+       url('/fonts/EidraSans-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Eidra Sans';
+  src: url('/fonts/EidraSans-RegularItalic.woff2') format('woff2'),
+       url('/fonts/EidraSans-RegularItalic.woff') format('woff');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
 :root {
   --bg:        #111111;
   --bg-raised: #1a1a1a;
@@ -21,6 +58,11 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Eidra Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-weight: 700;
+}
+
 /* ── Layout ── */
 .container {
   max-width: 1440px;
@@ -33,7 +75,7 @@ html, body {
   display: grid;
   grid-template-columns: 15fr 85fr;
   gap: 24px;
-  align-items: start;
+  align-items: center;
   margin-bottom: 24px;
 }
 .topbar h1 {
@@ -123,8 +165,10 @@ html, body {
   padding: 14px 22px;
   border-radius: 12px;
 }
-.btn-primary:hover    { background: var(--accent-hv); }
-.btn-primary:disabled { background: #333; color: #555; cursor: not-allowed; }
+.btn-primary:hover             { background: var(--accent-hv); }
+.btn-primary:disabled          { background: #333; color: #555; cursor: not-allowed; }
+.btn-primary.danger            { background: #f87171; border-color: #f87171; font-weight: 800; }
+.btn-primary.danger:hover      { background: #dc2626; border-color: #dc2626; }
 .btn-outline {
   background: transparent;
   border: 1px solid var(--accent);
@@ -157,22 +201,22 @@ html, body {
   gap: 10px;
   width: 100%;
   max-width: 660px;
-  margin-bottom: 16px;
+  margin-bottom: 0;
 }
 .url-input {
   flex: 1;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
+  background: #242424;
+  border: 1px solid #444444;
   border-radius: 12px;
   color: var(--white);
   font-size: 0.95rem;
   padding: 14px 18px;
   outline: none;
   font-family: inherit;
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
-.url-input:focus { border-color: var(--accent); }
-.url-input::placeholder { color: #3a3a52; }
+.url-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,0.2); }
+.url-input::placeholder { color: #666680; }
 
 /* ── Section label ── */
 .section-label {
@@ -279,7 +323,7 @@ html, body {
 .tile {
   position: relative; border-radius: 11px;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  overflow: hidden; border: 1px solid var(--border);
+  overflow: hidden;
   cursor: pointer; transition: transform .15s, box-shadow .15s;
 }
 .tile:hover   { transform: scale(1.04); box-shadow: 0 6px 24px rgba(0,0,0,.6); z-index: 2; }
@@ -324,28 +368,39 @@ html, body {
 .modal { background: #1c1c1c; border: 1px solid #2e2e2e; border-radius: 18px; padding: 24px; width: 560px; max-width: 100%; max-height: 90vh; overflow-y: auto; }
 .modal-hdr { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 4px; }
 .modal-hdr h2  { font-size: 17px; font-weight: 800; }
-.modal-x       { background: none; border: none; color: #555; font-size: 22px; cursor: pointer; line-height: 1; }
-.modal-x:hover { color: var(--white); }
+.modal-x       { background: none; border: none; color: #ffffff; font-size: 22px; cursor: pointer; line-height: 1; }
+.modal-x:hover { color: #9ca3af; }
 .modal-sub     { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
 .modal-prev    { border-radius: 10px; padding: 18px; text-align: center; font-size: 26px; font-weight: 800; margin-bottom: 16px; }
+
+/* ── Modal toggle ── */
 .m-tabs        { display: flex; gap: 8px; margin-bottom: 18px; }
-.m-tab         { padding: 6px 14px; border-radius: 7px; border: 2px solid #2e2e2e; background: none; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; }
-.m-tab.on      { border-color: var(--accent); color: var(--white); background: #1e3a5f; }
-.sugg-group    { margin-bottom: 16px; }
-.sugg-group-lbl { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; }
-.sugg-group-lbl.aa  { color: #60a5fa; }
-.sugg-group-lbl.aaa { color: #a78bfa; }
+.m-toggle      { display: inline-flex; background: #2a2a2a; border-radius: 10px; padding: 4px; gap: 0; position: relative; }
+.m-toggle-opt  { position: relative; z-index: 1; padding: 8px 20px; border-radius: 7px; border: none; background: none; color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer; transition: color 0.2s; font-family: inherit; white-space: nowrap; }
+.m-toggle-opt.on { color: #111; }
+.m-toggle-pill { position: absolute; top: 4px; bottom: 4px; border-radius: 7px; background: #ffffff; box-shadow: 0 1px 4px rgba(0,0,0,0.35); transition: left 0.2s ease, width 0.2s ease; z-index: 0; pointer-events: none; }
+
+/* ── Suggestion groups ── */
+.sugg-group     { margin-bottom: 16px; }
+.sugg-group-lbl { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 8px; }
+.sugg-group-lbl.aa  { color: rgb(250, 204, 21); }
+.sugg-group-lbl.aaa { color: rgb(74, 222, 128); }
 .m-suggs  { display: flex; gap: 9px; }
 .m-sugg   { flex: 1; border: 2px solid #2e2e2e; border-radius: 10px; padding: 10px; cursor: pointer; text-align: center; transition: border-color .15s; }
 .m-sugg:hover, .m-sugg.picked { border-color: var(--accent); }
-.ms-lbl    { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 7px; }
-.ms-swatch { width: 100%; height: 32px; border-radius: 6px; margin-bottom: 7px; }
-.ms-hex    { font-size: 11px; font-weight: 700; }
-.ms-ratio  { font-size: 10px; color: var(--muted); margin-top: 2px; }
-.ms-badge  { display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 20px; margin-top: 5px; }
-.ms-badge.aa  { background: #1e3a5f; color: #60a5fa; }
-.ms-badge.aaa { background: #2e1a5e; color: #a78bfa; }
-.ms-none   { font-size: 12px; color: var(--muted); padding: 10px 0; }
+
+/* ── Suggestion card internals ── */
+.ms-lbl        { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 7px; }
+.ms-swatch     { width: 100%; height: 32px; border-radius: 6px; margin-bottom: 7px; }
+.ms-hex        { font-size: 12px; font-weight: 700; margin-bottom: 6px; }
+.ms-meta       { display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; }
+.ms-ratio-pill { display: inline-block; background: rgba(255,255,255,0.92); color: rgb(17,17,17); font-size: 12px; font-weight: 800; padding: 2px 6px; border-radius: 4px; white-space: nowrap; line-height: 1.5; }
+.ms-badge      { display: inline-block; font-size: 12px; font-weight: 800; padding: 2px 6px; border-radius: 4px; white-space: nowrap; line-height: 1.5; }
+.ms-badge.aa   { color: rgb(250, 204, 21);  background: rgba(250, 204, 21,  0.133); }
+.ms-badge.aaa  { color: rgb(74,  222, 128); background: rgba(74,  222, 128, 0.133); }
+.ms-none       { font-size: 12px; color: var(--muted); padding: 10px 0; }
+
+/* ── Modal footer ── */
 .modal-ftr { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
 .m-cancel  { background: #2a2a2a; border: none; color: #aaa; padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
 .m-update  { background: var(--accent); border: none; color: var(--white); padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; }
