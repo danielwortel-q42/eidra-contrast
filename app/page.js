@@ -272,42 +272,71 @@ export default function Home() {
   // ── PDF export ────────────────────────────────────────────────────────────
   const exportPDF = async () => {
     const { jsPDF } = await import('jspdf');
-    const doc  = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-    const pw   = doc.internal.pageSize.getWidth();
-    const ph   = doc.internal.pageSize.getHeight();
-    const n    = colours.length;
-    const M    = 14;
-    const WHITE = [255, 255, 255];
-    const DARK  = [17, 17, 17];
-    const MID   = [156, 163, 175];
-    const STRIP = [30, 30, 30];
 
-    const pdfBg  = () => { doc.setFillColor(...DARK); doc.rect(0, 0, pw, ph, 'F'); };
+    // ── Load logo ──────────────────────────────────────────────────────────
+    let logoBase64 = null;
+    try {
+      const svgRes  = await fetch('/eidra-logo.svg');
+      const svgText = await svgRes.text();
+      const img     = new Image();
+      const blob    = new Blob([svgText], { type: 'image/svg+xml' });
+      const url     = URL.createObjectURL(blob);
+      await new Promise(resolve => { img.onload = resolve; img.src = url; });
+      const scale  = 3;
+      const canvas = document.createElement('canvas');
+      canvas.width  = img.naturalWidth  * scale;
+      canvas.height = img.naturalHeight * scale;
+      const ctx = canvas.getContext('2d');
+      ctx.filter = 'invert(1)';
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      logoBase64 = canvas.toDataURL('image/png');
+      URL.revokeObjectURL(url);
+    } catch (_) {}
+
+    // ── Initialise jsPDF ──────────────────────────────────────────────────
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const FONT_HDG = 'helvetica';
+    const pw    = doc.internal.pageSize.getWidth();
+    const ph    = doc.internal.pageSize.getHeight();
+    const n     = colours.length;
+    const M     = 14;
+    const WHITE = [255, 255, 255];
+    const DARK  = [17,  17,  17];
+    const MID   = [156, 163, 175];
+    const STRIP = [30,  30,  30];
+
+    const addLogo = () => {
+      if (!logoBase64) return;
+      doc.addImage(logoBase64, 'PNG', pw - M - 24, 6, 24, 8);
+    };
+    const pdfBg  = () => { doc.setFillColor(...DARK); doc.rect(0, 0, pw, ph, 'F'); addLogo(); };
     const pdfInk = hex => readableInk(hex) === '#fff' ? WHITE : DARK;
 
-    // Cover
+    // ── Cover ─────────────────────────────────────────────────────────────
     pdfBg();
-    const lineH      = 26;
-    const exportDate = new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' });
-    const metaLines  = [sourceUrl ? 'Source: ' + sourceUrl : null, 'Exported on ' + exportDate].filter(Boolean);
-    const startY     = (ph - (lineH * 3 + 10 + metaLines.length * 6)) / 2 + lineH + 10;
-    const leftX      = pw / 2 - 60;
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(64); doc.setTextColor(...WHITE);
-    doc.text('Colour',   leftX,          startY);
-    doc.text('Contrast', leftX + 20,     startY + lineH);
-    doc.text('Checker',  leftX,          startY + lineH * 2);
+    const lineH       = 26;
+    const exportDate  = new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' });
+    const metaLines   = [sourceUrl ? 'Source: ' + sourceUrl : null, 'Exported on ' + exportDate].filter(Boolean);
+    const titleBlockH = lineH * 3;
+    const totalH      = titleBlockH + 20 + metaLines.length * 8;
+    const startY      = (ph - totalH) / 2 + lineH;
+    const leftX       = pw / 2 - 60;
+    doc.setFont(FONT_HDG, 'bold'); doc.setFontSize(64); doc.setTextColor(...WHITE);
+    doc.text('Colour',   leftX,       startY);
+    doc.text('Contrast', leftX + 10,  startY + lineH);
+    doc.text('Checker',  leftX,       startY + lineH * 2);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(12); doc.setTextColor(...MID);
-    metaLines.forEach((l, i) => doc.text(l, leftX, startY + lineH * 2 + 10 + i * 6));
+    metaLines.forEach((l, i) => doc.text(l, leftX, startY + titleBlockH + 20 + i * 8));
     doc.addPage();
 
-    // Matrix
+    // ── Matrix ────────────────────────────────────────────────────────────
     const HDR_H = 8, ROW_W = 18, START_Y = 27, G = 2;
     const tW = Math.max(4, Math.floor(Math.min(
       (pw - M * 2 - ROW_W - G - (n - 1) * G) / n,
       (ph - START_Y - HDR_H - G - (n - 1) * G - M) / n
     )));
     pdfBg();
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(...WHITE);
+    doc.setFont(FONT_HDG, 'bold'); doc.setFontSize(16); doc.setTextColor(...WHITE);
     doc.text('Colour Contrast Matrix', M, 16);
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...MID);
     doc.text(n + ' colours · ' + (n * n - n) + ' combinations', M, 22);
@@ -325,16 +354,27 @@ export default function Home() {
       colours.forEach((bg, bi) => {
         const bx = M + ROW_W + G + bi * (tW + G);
         if (fi === bi) { doc.setFillColor(30, 30, 30); doc.roundedRect(bx, fy, tW, tW, 1.5, 1.5, 'F'); return; }
-        doc.setFillColor(...hexToRgb(bg)); doc.roundedRect(bx, fy, tW, tW, 1.5, 1.5, 'F');
+        const isDisabled = disabled.has(fi + '-' + bi);
+        doc.setFillColor(...hexToRgb(bg));
+        doc.setGState(new doc.GState({ opacity: isDisabled ? 0.25 : 1 }));
+        doc.roundedRect(bx, fy, tW, tW, 1.5, 1.5, 'F');
+        doc.setGState(new doc.GState({ opacity: isDisabled ? 0.25 : 1 }));
         doc.setTextColor(...hexToRgb(fg)); doc.setFontSize(tW * 0.35); doc.setFont('helvetica', 'bold');
         doc.text('Ag', bx + tW / 2, fy + tW / 2 + tW * 0.12, { align: 'center' });
+        doc.setGState(new doc.GState({ opacity: 1 }));
+        if (isDisabled) {
+          doc.setDrawColor(255, 255, 255);
+          doc.setLineWidth(0.5);
+          doc.line(bx + 2, fy + 2, bx + tW - 2, fy + tW - 2);
+        }
       });
     });
 
-    // Combos
+    // ── Combo cards ───────────────────────────────────────────────────────
     const combos = [];
-    colours.forEach(fg => colours.forEach(bg => {
+    colours.forEach((fg, fi) => colours.forEach((bg, bi) => {
       if (fg === bg) return;
+      if (disabled.has(fi + '-' + bi)) return;
       const ratio    = contrastRatio(fg, bg);
       const aaSmall  = ratio >= AA_SMALL,  aaLarge  = ratio >= AA_LARGE;
       const aaaSmall = ratio >= AAA_SMALL, aaaLarge = ratio >= AAA_LARGE;
@@ -342,18 +382,18 @@ export default function Home() {
     }));
 
     const CCOLS = 6, CARD_G = 4, CARD_H = 48, CSTART_Y = 28;
-    const CARD_W  = Math.floor((pw - M * 2 - (CCOLS - 1) * CARD_G) / CCOLS);
-    const ROWS_PP = Math.floor((ph - CSTART_Y - M) / (CARD_H + CARD_G));
+    const CARD_W   = Math.floor((pw - M * 2 - (CCOLS - 1) * CARD_G) / CCOLS);
+    const ROWS_PP  = Math.floor((ph - CSTART_Y - M) / (CARD_H + CARD_G));
     const PER_PAGE = CCOLS * ROWS_PP;
-    const COLOR_AAA = [74, 222, 128], COLOR_AA = [250, 204, 21], COLOR_FAIL = [248, 113, 113];
+    const C_AAA = [74, 222, 128], C_AA = [250, 204, 21], C_FAIL = [248, 113, 113];
 
     const drawBadge = (aa, aaa, x, y, w) => {
-      const col = aaa ? COLOR_AAA : aa ? COLOR_AA : COLOR_FAIL;
+      const col = aaa ? C_AAA : aa ? C_AA : C_FAIL;
       doc.setFillColor(...col); doc.setGState(new doc.GState({ opacity: 0.15 }));
       doc.roundedRect(x, y - 3.5, w, 5, 0.8, 0.8, 'F');
-      doc.setGState(new doc.GState({ opacity: 1 })); doc.setTextColor(...col);
-      doc.setFontSize(7.5); doc.setFont('helvetica', 'bold');
-      doc.text((aaa ? 'AAA' : aa ? 'AA' : 'AA') + ' ' + (aaa || aa ? 'Pass' : 'Fail'), x + w / 2, y, { align: 'center' });
+      doc.setGState(new doc.GState({ opacity: 1 }));
+      doc.setTextColor(...col); doc.setFontSize(7.5); doc.setFont('helvetica', 'bold');
+      doc.text((aaa ? 'AAA' : 'AA') + ' ' + (aaa || aa ? 'Pass' : 'Fail'), x + w / 2, y, { align: 'center' });
     };
     const drawCard = (combo, x, y) => {
       const PH = 22, IH = CARD_H - PH;
@@ -376,20 +416,21 @@ export default function Home() {
       if (!list.length) return;
       let idx = 0;
       doc.addPage(); pdfBg();
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(...WHITE); doc.text(title, M, 16);
+      doc.setFont(FONT_HDG, 'bold'); doc.setFontSize(16); doc.setTextColor(...WHITE); doc.text(title, M, 16);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...MID); doc.text(sub, M, 22);
       list.forEach(combo => {
         const pos = idx % PER_PAGE;
         if (idx > 0 && pos === 0) {
           doc.addPage(); pdfBg();
-          doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(...WHITE); doc.text(title + ' (cont.)', M, 16);
+          doc.setFont(FONT_HDG, 'bold'); doc.setFontSize(16); doc.setTextColor(...WHITE); doc.text(title + ' (cont.)', M, 16);
           doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...MID); doc.text(sub, M, 22);
         }
         drawCard(combo, M + (pos % CCOLS) * (CARD_W + CARD_G), CSTART_Y + Math.floor(pos / CCOLS) * (CARD_H + CARD_G));
         idx++;
       });
     };
-    drawSection(combos.filter(c => c.passes),  'Compliant Combinations',     combos.filter(c =>  c.passes).length + ' combinations are compliant');
+
+    drawSection(combos.filter(c =>  c.passes), 'Compliant Combinations',     combos.filter(c =>  c.passes).length + ' combinations are compliant');
     drawSection(combos.filter(c => !c.passes), 'Non-Compliant Combinations', combos.filter(c => !c.passes).length + ' combinations are non-compliant');
     doc.save('colour-contrast.pdf');
   };
@@ -428,7 +469,8 @@ export default function Home() {
         <div>
           <h1 onClick={clear} style={{ cursor: 'pointer' }}>
             Colour<br />
-            <span style={{ paddingLeft: 20 }}>Contrast Checker</span>
+            <span style={{ paddingLeft: 20 }}>Contrast</span><br />
+            Checker
           </h1>
         </div>
         <div className="topbar-right">
@@ -613,7 +655,7 @@ export default function Home() {
                         <button className="ov-btn" onClick={() => toggleDisable(fi, bi)}>
                           {off ? 'Enable' : 'Disable'}
                         </button>
-                        {!off && (
+                        {!off && !passes.aaaSmall && (
                           <button className="ov-btn improve" onClick={() => openModal(fi, bi)}>
                             Improve
                           </button>
@@ -699,16 +741,8 @@ export default function Home() {
 
       <div className={'toast' + (toast.show ? ' show' : '')}>{toast.msg}</div>
 
-      <footer style={{
-        marginTop: 60,
-        textAlign: 'center',
-        color: '#fff',
-        fontSize: '1rem',
-        fontFamily: '"Comic Sans MS", "Comic Sans", cursive',
-        fontWeight: 700,
-        padding: '14px 24px',
-      }}>
-        Accessible with love by STEAM 🚀
+      <footer style={{ marginTop: 60, textAlign: 'center', padding: '14px 24px' }}>
+        <img src="/Eidra_Q42_Black.svg" alt="Eidra Q42" style={{ height: 32, filter: 'invert(1)' }} />
       </footer>
     </div>
   );
