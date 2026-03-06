@@ -25,81 +25,149 @@ function colorDist(a, b) {
   return Math.sqrt((r1-r2)**2 + (g1-g2)**2 + (b1-b2)**2);
 }
 
+function brightness(hex) {
+  const [r,g,b] = hexToRgb(hex);
+  return (r*299 + g*587 + b*114) / 1000;
+}
+
+// Allow near-white and near-black — only reject mid-range unsaturated greys
 function isUseful(hex) {
   const [r,g,b] = hexToRgb(hex);
-  const br = (r*299 + g*587 + b*114) / 1000;
-  if (br > 248 || br < 8) return false;
+  const br    = brightness(hex);
   const range = Math.max(r,g,b) - Math.min(r,g,b);
-  if (range < 10 && br > 215) return false;
-  if (range < 10 && br < 20)  return false;
+  if (range < 10 && br > 30 && br < 220) return false;
   return true;
 }
 
-// Weight multipliers — background/fill colors count more than a single mention
+// ── Selector analysis ─────────────────────────────────────────────────────────
+
+const DEMOTE_SELECTOR = /disabled|muted|placeholder|ghost|skeleton|subtle|faded|inactive|dimmed/i;
+const DEMOTE_MEDIA    = /print|forced-colors|prefers-color-scheme/i;
+const BROAD_SELECTOR  = /^(\*|html|body\s*\*|a:visited|::selection)$/i;
+
+// ── CSS variable helpers ──────────────────────────────────────────────────────
+
+const BRAND_VAR = /brand|primary|accent|highlight|key|main|hero|cta|theme/i;
+
+function extractCSSVars(text) {
+  const vars = {};
+  const declRe = /(--[\w-]+)\s*:\s*([^;}{]+)/g;
+  let d;
+  while ((d = declRe.exec(text)) !== null) {
+    const val = d[2].trim();
+    const hexM = val.match(/#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![0-9a-fA-F])/);
+    if (hexM) { vars[d[1].trim()] = normalizeHex(hexM[1]); continue; }
+    const rgbM = val.match(/rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/);
+    if (rgbM) { vars[d[1].trim()] = rgbToHex(+rgbM[1], +rgbM[2], +rgbM[3]); }
+  }
+  return vars;
+}
+
+function resolveVars(val, vars) {
+  return val.replace(/var\(\s*(--[\w-]+)[^)]*\)/g, (_, name) => vars[name] || _);
+}
+
+// ── Weight config ─────────────────────────────────────────────────────────────
+
 const WEIGHTS = {
   'background-color': 8,
   'background':       7,
   'fill':             4,
   'border-color':     2,
-  'color':            6,
-  '--':               3, // CSS custom properties
+  'color':            3, // demoted from 6 — accumulates too easily on text elements
+  '--':               3,
   'default':          1,
 };
 
-function weightFor(context) {
+function weightFor(prop) {
   for (const [key, w] of Object.entries(WEIGHTS)) {
-    if (context.includes(key)) return w;
+    if (prop.includes(key)) return w;
   }
   return WEIGHTS.default;
 }
 
-function parseColors(text) {
-  const map = {};
+// ── Colour parsing ────────────────────────────────────────────────────────────
 
-  function add(hex, weight = 1) {
+function parseColors(text) {
+  const map     = {};  // hex → total weighted score
+  const bgSet   = new Set(); // colours seen as background
+  const fgSet   = new Set(); // colours seen as foreground/text
+  const vars    = extractCSSVars(text);
+
+  function add(hex, weight) {
     if (isUseful(hex)) map[hex] = (map[hex] || 0) + weight;
   }
 
-  // Walk every CSS declaration and extract colors with context-aware weighting
-  // Matches: property: ...#hex... or property: ...rgb(...)...
-  const declRe = /([\w-]+)\s*:\s*([^;}{]+)/g;
-  let d;
-  while ((d = declRe.exec(text)) !== null) {
-    const prop = d[1].toLowerCase();
-    const val  = d[2];
-    const w    = weightFor(prop);
+  // Split CSS into blocks to get selector + media context per declaration
+  // Strategy: walk rule-by-rule by finding { } pairs
+  const ruleRe = /([^{}]*)\{([^{}]*)\}/g;
+  let rule;
+  while ((rule = ruleRe.exec(text)) !== null) {
+    const selector  = rule[1].trim();
+    const block     = rule[2];
 
-    // Hex colors within this declaration
-    const hexRe = /#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![0-9a-fA-F])/g;
-    let m;
-    while ((m = hexRe.exec(val)) !== null) add(normalizeHex(m[1]), w);
+    // Determine context multipliers
+    const isBroadSel  = BROAD_SELECTOR.test(selector);
+    const isDemoteSel = DEMOTE_SELECTOR.test(selector);
+    const isMediaCtx  = DEMOTE_MEDIA.test(selector);
+    const selectorMult = isBroadSel || isDemoteSel || isMediaCtx ? 0.5 : 1;
 
-    // rgb/rgba within this declaration
-    const rgbRe = /rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/g;
-    while ((m = rgbRe.exec(val)) !== null) add(rgbToHex(+m[1], +m[2], +m[3]), w);
+    const declRe = /([\w-]+)\s*:\s*([^;]+)/g;
+    let d;
+    while ((d = declRe.exec(block)) !== null) {
+      const prop = d[1].toLowerCase();
+      const raw  = d[2];
+      const w    = weightFor(prop);
+
+      // Boost brand-named CSS variable definitions
+      const isBrandVar = prop.startsWith('--') && BRAND_VAR.test(prop);
+      const varBoost   = isBrandVar ? 2 : 1;
+
+      const val = resolveVars(raw, vars);
+      const finalWeight = w * selectorMult * varBoost;
+
+      const isBackground = prop.includes('background') || prop.includes('fill');
+      const isForeground = prop === 'color';
+
+      const hexRe = /#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![0-9a-fA-F])/g;
+      let m;
+      while ((m = hexRe.exec(val)) !== null) {
+        const hex = normalizeHex(m[1]);
+        add(hex, finalWeight);
+        if (isBackground) bgSet.add(hex);
+        if (isForeground) fgSet.add(hex);
+      }
+
+      const rgbRe = /rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/g;
+      while ((m = rgbRe.exec(val)) !== null) {
+        const hex = rgbToHex(+m[1], +m[2], +m[3]);
+        add(hex, finalWeight);
+        if (isBackground) bgSet.add(hex);
+        if (isForeground) fgSet.add(hex);
+      }
+    }
   }
 
-  // Also catch any hex/rgb not inside a declaration (e.g. raw style attributes)
-  const hexRe2 = /#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![0-9a-fA-F])/g;
-  let m2;
-  while ((m2 = hexRe2.exec(text)) !== null) add(normalizeHex(m2[1]), 1);
+  // Cross-role bonus: colours used as both bg and fg are intentional brand colours
+  for (const hex of bgSet) {
+    if (fgSet.has(hex) && map[hex]) map[hex] = Math.round(map[hex] * 1.5);
+  }
 
   const sorted = Object.entries(map)
     .sort((a, b) => b[1] - a[1])
     .map(([hex, count]) => ({ hex, count }));
 
-  // Group similar colors, keep the most frequent as representative
+  // Group similar colours — tightened from 28 to 18 to preserve distinct shades
   const groups = [];
   for (const c of sorted) {
-    const group = groups.find(g => colorDist(g[0].hex, c.hex) < 28);
+    const group = groups.find(g => colorDist(g[0].hex, c.hex) < 18);
     if (group) group.push(c);
     else groups.push([c]);
   }
 
-  // Each group's score = sum of all members' counts
   const result = groups
     .map(g => ({
-      hex:   g[0].hex, // most frequent is already first (sorted above)
+      hex:   g[0].hex,
       count: g.reduce((s, c) => s + c.count, 0),
     }))
     .sort((a, b) => b.count - a.count)
@@ -111,14 +179,16 @@ function parseColors(text) {
 function toPercent(colors) {
   const total = colors.reduce((s, c) => s + c.count, 0);
   return colors.map(c => ({
-    hex: c.hex,
+    hex:   c.hex,
     count: c.count,
-    pct: Math.round((c.count / total) * 100),
+    pct:   Math.round((c.count / total) * 100),
   }));
 }
 
+// ── CSS fetching ──────────────────────────────────────────────────────────────
+
 async function fetchCSS(html, baseUrl) {
-  const root = parse(html);
+  const root   = parse(html);
   const origin = new URL(baseUrl).origin;
   let combined = '';
 
@@ -147,21 +217,24 @@ async function fetchCSS(html, baseUrl) {
   return { css: combined, html };
 }
 
-// Extract the body background and main text colour directly from the HTML/CSS
+// ── Base colour extraction ────────────────────────────────────────────────────
+
 function extractBaseColors(html, cssText) {
   const root = parse(html);
   const bases = [];
+  const vars  = extractCSSVars(cssText);
 
-  // Helper: pull first hex/rgb from a value string
   const firstColor = val => {
-    const hexM = val && val.match(/#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![0-9a-fA-F])/);
+    if (!val) return null;
+    const resolved = resolveVars(val, vars);
+    const hexM = resolved.match(/#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![0-9a-fA-F])/);
     if (hexM) return normalizeHex(hexM[1]);
-    const rgbM = val && val.match(/rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/);
+    const rgbM = resolved.match(/rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/);
     if (rgbM) return rgbToHex(+rgbM[1], +rgbM[2], +rgbM[3]);
     return null;
   };
 
-  // 1. Look for explicit body { background / color } rules in CSS
+  // 1. body {} rules
   const bodyRuleRe = /body\s*\{([^}]+)\}/gi;
   let bm;
   while ((bm = bodyRuleRe.exec(cssText)) !== null) {
@@ -172,7 +245,7 @@ function extractBaseColors(html, cssText) {
     if (fgM) { const c = firstColor(fgM[1]); if (c && isUseful(c)) bases.push({ hex: c, role: 'fg', boost: 40 }); }
   }
 
-  // 2. Fallback: inline style on <body> tag
+  // 2. Inline style on <body>
   const bodyEl = root.querySelector('body');
   if (bodyEl) {
     const inlineStyle = bodyEl.getAttribute('style') || '';
@@ -182,7 +255,7 @@ function extractBaseColors(html, cssText) {
     if (fgM) { const c = firstColor(fgM[1]); if (c && isUseful(c) && !bases.find(b => b.hex === c)) bases.push({ hex: c, role: 'fg', boost: 40 }); }
   }
 
-  // 3. Fallback: look for :root or html rule backgrounds
+  // 3. :root / html rules
   const rootRuleRe = /(?::root|html)\s*\{([^}]+)\}/gi;
   let rm;
   while ((rm = rootRuleRe.exec(cssText)) !== null) {
@@ -194,7 +267,7 @@ function extractBaseColors(html, cssText) {
   return bases;
 }
 
-// ── Route handler (App Router) ────────────────────────────────────────────────
+// ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
@@ -206,12 +279,8 @@ export async function GET(request) {
 
   let parsed;
   try {
-    // Strip leading/trailing whitespace
     let normalized = url.trim();
-    // If no protocol, prepend https://
-    if (!/^https?:\/\//i.test(normalized)) {
-      normalized = 'https://' + normalized;
-    }
+    if (!/^https?:\/\//i.test(normalized)) normalized = 'https://' + normalized;
     parsed = new URL(normalized);
     if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error();
   } catch {
@@ -231,25 +300,19 @@ export async function GET(request) {
     const html = await pageRes.text();
     const { css: cssText } = await fetchCSS(html, parsed.href);
 
-    // Extract locked base colors (body bg + text)
     const baseColors = extractBaseColors(html, cssText);
+    const allColors  = parseColors(cssText);
 
-    // Parse all colors from CSS
-    const allColors = parseColors(cssText);
-
-    // Build locked slots first
     const locked = [];
-    const lockedRoles = ['bg', 'fg'];
-    lockedRoles.forEach(role => {
+    ['bg', 'fg'].forEach(role => {
       const found = baseColors.find(b => b.role === role);
       if (found) locked.push({ hex: found.hex, locked: true, role });
     });
 
-    // Fill remaining slots with accent colors, skipping anything too close to locked
     const accents = [];
     for (const c of allColors) {
-      if (locked.some(l => colorDist(l.hex, c.hex) < 28)) continue;
-      if (accents.some(a => colorDist(a.hex, c.hex) < 28)) continue;
+      if (locked.some(l => colorDist(l.hex, c.hex) < 18)) continue;
+      if (accents.some(a => colorDist(a.hex, c.hex) < 18)) continue;
       accents.push({ hex: c.hex, locked: false, role: 'accent', count: c.count });
       if (accents.length >= 6 - locked.length) break;
     }
@@ -257,9 +320,7 @@ export async function GET(request) {
     const merged = [...locked, ...accents];
     const colors = toPercent(merged.map((c, i) => ({
       ...c,
-      count: c.locked
-        ? (i === 0 ? 1000 : 900) // locked slots get fixed high counts for % calc
-        : (c.count || 1),
+      count: c.locked ? (i === 0 ? 1000 : 900) : (c.count || 1),
     })));
 
     if (!colors.length) {

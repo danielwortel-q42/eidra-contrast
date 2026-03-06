@@ -18,6 +18,10 @@ const ROW_HDR_PCT   = 0.08;
 const GRID_GAP      = 5;
 const SUGGEST_STEPS = 70;
 const HEX_RE        = /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/;
+const SUGG_GROUPS   = [
+  { label: 'AA',  cls: 'aa',  min: AA_THRESHOLD  },
+  { label: 'AAA', cls: 'aaa', min: AAA_THRESHOLD },
+];
 
 // ── Colour utilities ──────────────────────────────────────────────────────────
 const hexToRgb = hex => {
@@ -58,6 +62,7 @@ const findSuggestion = (fg, bg, direction, target, minRatio) => {
   }
   return null;
 };
+const isTouchDevice = () => typeof window !== 'undefined' && 'ontouchstart' in window;
 
 // ── Toggle Pill ───────────────────────────────────────────────────────────────
 function TogglePill({ value, options, onChange }) {
@@ -96,11 +101,13 @@ function TogglePill({ value, options, onChange }) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function Home() {
-  const router       = useRouter();
-  const searchParams = useSearchParams();
-  const containerRef = useRef(null);
-  const toastTimer   = useRef(null);
-  const inputRef     = useRef(null);
+  const router        = useRouter();
+  const searchParams  = useSearchParams();
+  const containerRef  = useRef(null);
+  const toastTimer    = useRef(null);
+  const inputRef      = useRef(null);
+  const activeTileRef = useRef(null);
+  const logoRatioRef  = useRef(3);
 
   const [colours,      setColours]      = useState([]);
   const [disabled,     setDisabled]     = useState(new Set());
@@ -108,12 +115,36 @@ export default function Home() {
   const [undoSnapshot, setUndoSnapshot] = useState(null);
   const [dragIndex,    setDragIndex]    = useState(null);
   const [dragOver,     setDragOver]     = useState(null);
-  const [inputVal,     setInputVal]     = useState('');
+  const [activeTile,   setActiveTile]   = useState(null);
   const [modal,        setModal]        = useState(null);
   const [toast,        setToast]        = useState({ show: false, msg: '' });
   const [loading,      setLoading]      = useState(false);
   const [error,        setError]        = useState('');
   const [sourceUrl,    setSourceUrl]    = useState('');
+  const [inputVal,     setInputVal]     = useState('');
+  
+  const [comboView,    setComboView]    = useState('grid');
+  const [, forceUpdate]                = useState(0);
+
+  // Dismiss active tile when tapping outside
+  useEffect(() => {
+    const handler = e => {
+      if (!activeTileRef.current) return;
+      const tileEl = document.querySelector(`[data-tile="${activeTileRef.current}"]`);
+      if (tileEl && tileEl.contains(e.target)) return;
+      setActiveTile(null);
+      activeTileRef.current = null;
+    };
+    document.addEventListener('touchend', handler);
+    return () => document.removeEventListener('touchend', handler);
+  }, []);
+
+  // Recalculate layout on resize
+  useEffect(() => {
+    const observer = new ResizeObserver(() => forceUpdate(n => n + 1));
+    if (containerRef.current) observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const raw  = searchParams.get('colours');
@@ -136,7 +167,7 @@ export default function Home() {
     if (sourceUrl) params.set('site', encodeURIComponent(sourceUrl));
     const qs = params.toString();
     router.replace(qs ? '/?' + qs : '/', { scroll: false });
-  }, [colours, sourceUrl]);
+  }, [colours, sourceUrl, router]);
 
   const showToast = msg => {
     clearTimeout(toastTimer.current);
@@ -198,7 +229,7 @@ export default function Home() {
         setColours(extracted);
         setCanUndo(false);
       } catch (err) {
-        setError(err.message);
+                  setError(err.message === 'No colours found' ? 'No colours were found because this site likely loads its styles via JavaScript, which our extractor cannot detect.' : err.message);
       }
       setLoading(false);
       return;
@@ -243,6 +274,8 @@ export default function Home() {
     setCanUndo(false);
     setUndoSnapshot(null);
     setError('');
+    setInputVal('');
+    setSourceUrl('');
     setTimeout(() => inputRef.current?.focus(), 0);
   };
 
@@ -273,10 +306,9 @@ export default function Home() {
   const exportPDF = async () => {
     const { jsPDF } = await import('jspdf');
 
-    // ── Load logo ──────────────────────────────────────────────────────────
     let logoBase64 = null;
     try {
-      const svgRes  = await fetch('/eidra-logo.svg');
+      const svgRes  = await fetch('/Eidra_Q42_Black.svg');
       const svgText = await svgRes.text();
       const img     = new Image();
       const blob    = new Blob([svgText], { type: 'image/svg+xml' });
@@ -290,10 +322,10 @@ export default function Home() {
       ctx.filter = 'invert(1)';
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       logoBase64 = canvas.toDataURL('image/png');
+      logoRatioRef.current = img.naturalWidth / img.naturalHeight;
       URL.revokeObjectURL(url);
     } catch (_) {}
 
-    // ── Initialise jsPDF ──────────────────────────────────────────────────
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const FONT_HDG = 'helvetica';
     const pw    = doc.internal.pageSize.getWidth();
@@ -307,12 +339,13 @@ export default function Home() {
 
     const addLogo = () => {
       if (!logoBase64) return;
-      doc.addImage(logoBase64, 'PNG', pw - M - 24, 6, 24, 8);
+      const LOGO_H = 8;
+      const LOGO_W = LOGO_H * logoRatioRef.current;
+      doc.addImage(logoBase64, 'PNG', pw - M - LOGO_W, 11, LOGO_W, LOGO_H);
     };
     const pdfBg  = () => { doc.setFillColor(...DARK); doc.rect(0, 0, pw, ph, 'F'); addLogo(); };
     const pdfInk = hex => readableInk(hex) === '#fff' ? WHITE : DARK;
 
-    // ── Cover ─────────────────────────────────────────────────────────────
     pdfBg();
     const lineH       = 26;
     const exportDate  = new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -329,7 +362,6 @@ export default function Home() {
     metaLines.forEach((l, i) => doc.text(l, leftX, startY + titleBlockH + 20 + i * 8));
     doc.addPage();
 
-    // ── Matrix ────────────────────────────────────────────────────────────
     const HDR_H = 8, ROW_W = 18, START_Y = 27, G = 2;
     const tW = Math.max(4, Math.floor(Math.min(
       (pw - M * 2 - ROW_W - G - (n - 1) * G) / n,
@@ -360,7 +392,7 @@ export default function Home() {
         doc.roundedRect(bx, fy, tW, tW, 1.5, 1.5, 'F');
         doc.setGState(new doc.GState({ opacity: isDisabled ? 0.25 : 1 }));
         doc.setTextColor(...hexToRgb(fg)); doc.setFontSize(tW * 0.35); doc.setFont('helvetica', 'bold');
-        doc.text('Ag', bx + tW / 2, fy + tW / 2 + tW * 0.12, { align: 'center' });
+        doc.text('Ag', bx + tW / 2, fy + tW / 2 + (tW * 0.35) * 0.18, { align: 'center' });
         doc.setGState(new doc.GState({ opacity: 1 }));
         if (isDisabled) {
           doc.setDrawColor(255, 255, 255);
@@ -370,7 +402,6 @@ export default function Home() {
       });
     });
 
-    // ── Combo cards ───────────────────────────────────────────────────────
     const combos = [];
     colours.forEach((fg, fi) => colours.forEach((bg, bi) => {
       if (fg === bg) return;
@@ -456,10 +487,6 @@ export default function Home() {
   const { rowHdrW, tileW } = computeLayout();
   const modalFg    = modal ? colours[modal.fgIndex] : null;
   const modalBg    = modal ? colours[modal.bgIndex] : null;
-  const SUGG_GROUPS = [
-    { label: 'AA',  cls: 'aa',  min: AA_THRESHOLD  },
-    { label: 'AAA', cls: 'aaa', min: AAA_THRESHOLD },
-  ];
 
   return (
     <div className="container" ref={containerRef} style={{ paddingBottom: 24 }}>
@@ -468,8 +495,7 @@ export default function Home() {
       <div className="topbar">
         <div>
           <h1 onClick={clear} style={{ cursor: 'pointer' }}>
-            Colour<br />
-            <span style={{ paddingLeft: 20 }}>Contrast</span><br />
+            Colour <span style={{ paddingLeft: 20 }}>Contrast </span><br />
             Checker
           </h1>
         </div>
@@ -524,11 +550,7 @@ export default function Home() {
               </button>
             )}
             {canUndo && (
-              <button
-                className="btn-primary"
-                style={{ background: 'none', border: '1px solid var(--border)', color: 'var(--muted)' }}
-                onClick={undo}
-              >
+              <button className="btn-primary ghost" onClick={undo}>
                 ↩ Undo
               </button>
             )}
@@ -556,7 +578,6 @@ export default function Home() {
       {/* Empty / one-colour state */}
       {!showMatrix && (
         <div className="empty">
-          <div className="empty-emoji">{n === 0 ? '🎨' : '👀'}</div>
           <h2>{n === 0 ? "Extract any website's colour palette." : "You're almost there…"}</h2>
           <p>
             {n === 0
@@ -588,7 +609,7 @@ export default function Home() {
           >
             <div style={{ width: rowHdrW, height: 36 }} />
             {colours.map(c => (
-              <div key={c} className="col-hdr" style={{ background: c, color: readableInk(c) }}>
+              <div key={c} className="col-hdr" style={{ background: c, color: readableInk(c) }} onClick={() => copyHex(c)}>
                 {c}
               </div>
             ))}
@@ -613,11 +634,27 @@ export default function Home() {
                     aaaSmall: ratio >= AAA_SMALL,
                     aaaLarge: ratio >= AAA_LARGE,
                   };
+                  const key = fi + '-' + bi;
                   return (
                     <div
-                      key={fi + '-' + bi}
-                      className={'tile' + (off ? ' off' : '')}
+                      key={key}
+                      data-tile={key}
+                      className={'tile' + (off ? ' off' : '') + (activeTile === key ? ' touch-active' : '')}
                       style={{ background: bg, color: fg, height: tileW }}
+                      onTouchEnd={e => {
+                        if (activeTile !== key) {
+                          e.preventDefault();
+                          setActiveTile(key);
+                          activeTileRef.current = key;
+                        } else {
+                          e.preventDefault();
+                          setActiveTile(null);
+                          activeTileRef.current = null;
+                        }
+                      }}
+                      onMouseLeave={() => {
+                        if (!isTouchDevice()) setActiveTile(null);
+                      }}
                     >
                       <div className="notch" style={{ opacity: off ? 0.35 : 1 }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -652,11 +689,24 @@ export default function Home() {
                       <div className="aa-lg">Ag</div>
                       <div className="aa-sm">Ag</div>
                       <div className="tile-ov" style={{ zIndex: 10 }}>
-                        <button className="ov-btn" onClick={() => toggleDisable(fi, bi)}>
+                        <button
+                          className="ov-btn"
+                          onTouchEnd={e => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            toggleDisable(fi, bi);
+                            if (!off) { setActiveTile(null); activeTileRef.current = null; }
+                          }}
+                          onClick={() => toggleDisable(fi, bi)}
+                        >
                           {off ? 'Enable' : 'Disable'}
                         </button>
                         {!off && !passes.aaaSmall && (
-                          <button className="ov-btn improve" onClick={() => openModal(fi, bi)}>
+                          <button
+                            className="ov-btn improve"
+                            onTouchEnd={e => { e.stopPropagation(); e.preventDefault(); openModal(fi, bi); setActiveTile(null); activeTileRef.current = null; }}
+                            onClick={() => openModal(fi, bi)}
+                          >
                             Improve
                           </button>
                         )}
@@ -669,6 +719,166 @@ export default function Home() {
           </div>
         </div>
       )}
+
+      {/* Combination cards */}
+      {showMatrix && (() => {
+        const combos = [];
+        colours.forEach((fg, fi) => colours.forEach((bg, bi) => {
+          if (fg === bg) return;
+          if (disabled.has(fi + '-' + bi)) return;
+          const ratio    = contrastRatio(fg, bg);
+          const aaSmall  = ratio >= AA_SMALL,  aaLarge  = ratio >= AA_LARGE;
+          const aaaSmall = ratio >= AAA_SMALL, aaaLarge = ratio >= AAA_LARGE;
+          combos.push({ fg, bg, ratio, aaSmall, aaLarge, aaaSmall, aaaLarge, passes: aaSmall || aaLarge });
+        }));
+        const sortScore = c => {
+          if (c.aaaSmall) return 0;
+          if (c.aaSmall && c.aaaLarge) return 1;
+          if (c.aaSmall) return 2;
+          return 3;
+        };
+        const compliantCombos    = combos.filter(c =>  c.passes).sort((a, b) => sortScore(a) - sortScore(b));
+        const nonCompliantCombos = combos.filter(c => !c.passes);
+
+        const Card = ({ combo, onCopy }) => (
+          <div style={{
+            borderRadius: 12, overflow: 'hidden',
+            border: '1px solid var(--border)',
+            background: 'var(--bg-raised)',
+            flex: '1 1 160px',
+          }}>
+            <div style={{ background: combo.bg, padding: '14px 12px', textAlign: 'center' }}>
+              <div style={{ color: combo.fg, fontSize: 28, fontWeight: 800, lineHeight: 1 }}>Ag</div>
+              <div style={{ marginTop: 8, display: 'inline-block', background: 'rgba(255,255,255,0.92)', color: '#111', fontSize: 11, fontWeight: 800, padding: '2px 8px', borderRadius: 99 }}>
+                {combo.ratio.toFixed(1)}:1
+              </div>
+            </div>
+            <div style={{ padding: '10px 12px' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--white)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+              {[combo.fg, combo.bg].map((hex, i) => {
+                const ink = readableInk(hex);
+                return (
+                  <React.Fragment key={hex + i}>
+                    <span className="chip" style={{ background: hex, color: ink, cursor: 'default' }}>
+                      {hex}
+                    </span>
+                    {i === 0 && <span style={{ color: 'var(--muted)', fontSize: 10 }}>on</span>}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+              {[['Small', combo.aaSmall, combo.aaaSmall], ['Large', combo.aaLarge, combo.aaaLarge]].map(([label, aa, aaa]) => {
+                const color = aaa ? '#4ade80' : aa ? '#facc15' : '#f87171';
+                const badge = aaa ? 'AAA ✓' : aa ? 'AA ✓' : 'AA ✗';
+                return (
+                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
+                    <span style={{ color: '#999', fontSize: 11, width: 36, flexShrink: 0 }}>{label}</span>
+                    <span style={{ fontSize: 11, fontWeight: 800, color, background: color + '22', padding: '1px 6px', borderRadius: 4 }}>{badge}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+
+        const ComboRow = ({ combo }) => (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px' }}>
+            <div style={{ background: combo.bg, borderRadius: 8, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <span style={{ color: combo.fg, fontSize: 18, fontWeight: 800 }}>Ag</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: 1, flexWrap: 'wrap' }}>
+              {[combo.fg, combo.bg].map((hex, j) => {
+                const ink = readableInk(hex);
+                return (
+                  <React.Fragment key={hex + j}>
+                    <span className="chip" style={{ background: hex, color: ink, cursor: 'pointer' }} onClick={() => copyHex(hex)}>{hex}</span>
+                    {j === 0 && <span style={{ color: 'var(--muted)', fontSize: 10 }}>on</span>}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+            <div style={{ background: 'rgba(255,255,255,0.92)', color: '#111', fontSize: 11, fontWeight: 800, padding: '2px 8px', borderRadius: 99, flexShrink: 0 }}>
+              {combo.ratio.toFixed(1)}:1
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0 }}>
+              {[
+                { label: 'Small', aa: combo.aaSmall, aaa: combo.aaaSmall },
+                { label: 'Large', aa: combo.aaLarge, aaa: combo.aaaLarge },
+              ].map(({ label, aa, aaa }) => {
+                const color = aaa ? '#4ade80' : aa ? '#facc15' : '#f87171';
+                const badge = aaa ? 'AAA ✓' : aa ? 'AA ✓' : 'AA ✗';
+                return (
+                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ color: '#999', fontSize: 11, width: 36, flexShrink: 0 }}>{label}</span>
+                    <span style={{ fontSize: 11, fontWeight: 800, color, background: color + '22', padding: '1px 6px', borderRadius: 4 }}>{badge}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+
+        const Section = ({ title, sub, list, showToggle, columns = 3 }) => list.length === 0 ? null : (
+          <div style={{ marginTop: 64 }}>
+            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', gap: 12 }}>
+              <div>
+                <h2 style={{ fontSize: '1.6rem', fontWeight: 800, marginBottom: 6 }}>{title}</h2>
+                <p style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>{sub}</p>
+              </div>
+              {showToggle && (
+                <TogglePill
+                  value={comboView}
+                  options={[{ value: 'grid', label: 'Card' }, { value: 'list', label: 'List' }]}
+                  onChange={setComboView}
+                />
+              )}
+            </div>
+            {comboView === 'grid' ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, width: '100%', marginTop: 20 }}>
+                {list.map((combo, i) => <Card key={i} combo={combo} onCopy={copyHex} />)}
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: columns === 1 ? 'calc(33.333% - 11px)' : 'repeat(3, 1fr)', gap: 16, marginTop: 20, alignItems: 'start' }}>
+                {columns === 3 ? (
+                  [
+                    list.filter(c => c.aaaSmall),
+                    list.filter(c => c.aaSmall && !c.aaaSmall),
+                    list.filter(c => !c.aaSmall && c.aaLarge),
+                  ].map((items, colIdx) => (
+                    <div key={colIdx} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {items.length === 0
+                        ? <div style={{ fontSize: 12, color: '#444', padding: '10px 0' }}>No combinations</div>
+                        : items.map((combo, i) => <ComboRow key={i} combo={combo} />)
+                      }
+                    </div>
+                  ))
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {list.map((combo, i) => <ComboRow key={i} combo={combo} />)}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+
+        return (
+          <>
+            <Section
+              title="Compliant Combinations"
+              sub={compliantCombos.length + ' combination' + (compliantCombos.length !== 1 ? 's' : '') + ' meet AA or AAA standards'}
+              list={compliantCombos}
+              showToggle
+            />
+            <Section
+              title="Non-Compliant Combinations"
+              sub={nonCompliantCombos.length + ' combination' + (nonCompliantCombos.length !== 1 ? 's' : '') + ' do not meet AA standards'}
+              list={nonCompliantCombos}
+              columns={1}
+            />
+          </>
+        );
+      })()}
 
       {/* Modal */}
       {modal && (
@@ -695,40 +905,103 @@ export default function Home() {
               options={[{ value: 'fg', label: 'Text colour' }, { value: 'bg', label: 'Background colour' }]}
               onChange={t => setModal(m => ({ ...m, target: t, picked: null }))}
             />
-            {SUGG_GROUPS.map(group => {
-              const lighter = findSuggestion(modalFg, modalBg, 'lighter', modal.target, group.min);
-              const darker  = findSuggestion(modalFg, modalBg, 'darker',  modal.target, group.min);
-              return (
-                <div key={group.label} className="sugg-group">
-                  <div className={'sugg-group-lbl ' + group.cls}>
-                    {group.label + ' Compliant Suggestions'}
+            {(() => {
+              const currentRatio = contrastRatio(modalFg, modalBg);
+              const isAAA = currentRatio >= AAA_THRESHOLD;
+              const isAA  = currentRatio >= AA_THRESHOLD;
+
+              if (isAAA) {
+                const color = 'rgb(74, 222, 128)';
+                const bg    = 'rgba(74, 222, 128, 0.1)';
+                return (
+                  <div style={{ border: `1.5px solid ${color}`, borderRadius: 10, padding: '18px 20px', background: bg, textAlign: 'center', marginBottom: 16 }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color, marginBottom: 6 }}>AAA Compliant</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      This combination already meets AAA standards with a ratio of <span style={{ color, fontWeight: 700 }}>{currentRatio.toFixed(1)}:1</span>. No improvements needed.
+                    </div>
                   </div>
-                  <div className="m-suggs">
-                    {[['Lighter', lighter], ['Darker', darker]].map(([lbl, res]) => (
-                      <div
-                        key={lbl}
-                        className={'m-sugg' + (modal.picked === res?.hex ? ' picked' : '')}
-                        onClick={() => { if (res) setModal(m => ({ ...m, picked: res.hex })); }}
-                      >
-                        <div className="ms-lbl">{lbl}</div>
-                        {res ? (
-                          <div>
-                            <div className="ms-swatch" style={{ background: res.hex }} />
-                            <div className="ms-hex">{res.hex}</div>
-                            <div className="ms-meta">
-                              <span className="ms-ratio-pill">{res.ratio.toFixed(1)}:1</span>
-                              <span className={'ms-badge ' + group.cls}>{group.label} ✓</span>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="ms-none">No accessible options found</div>
-                        )}
+                );
+              }
+
+              if (isAA) {
+                const color = 'rgb(250, 204, 21)';
+                const bg    = 'rgba(250, 204, 21, 0.1)';
+                const aaaGroup = SUGG_GROUPS.find(g => g.label === 'AAA');
+                const lighter  = findSuggestion(modalFg, modalBg, 'lighter', modal.target, aaaGroup.min);
+                const darker   = findSuggestion(modalFg, modalBg, 'darker',  modal.target, aaaGroup.min);
+                return (
+                  <>
+                    <div style={{ border: `1.5px solid ${color}`, borderRadius: 10, padding: '18px 20px', background: bg, textAlign: 'center', marginBottom: 16 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color, marginBottom: 6 }}>AA Compliant</div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        This combination meets AA standards with a ratio of <span style={{ color, fontWeight: 700 }}>{currentRatio.toFixed(1)}:1</span>. Suggestions below to reach AAA.
                       </div>
-                    ))}
+                    </div>
+                    <div className="sugg-group">
+                      <div className="sugg-group-lbl aaa">AAA Compliant Suggestions</div>
+                      <div className="m-suggs">
+                        {[['Lighter', lighter], ['Darker', darker]].map(([lbl, res]) => (
+                          <div
+                            key={lbl}
+                            className={'m-sugg' + (modal.picked === res?.hex ? ' picked' : '')}
+                            onClick={() => { if (res) setModal(m => ({ ...m, picked: res.hex })); }}
+                          >
+                            <div className="ms-lbl">{lbl}</div>
+                            {res ? (
+                              <div>
+                                <div className="ms-swatch" style={{ background: res.hex }} />
+                                <div className="ms-hex">{res.hex}</div>
+                                <div className="ms-meta">
+                                  <span className="ms-ratio-pill">{res.ratio.toFixed(1)}:1</span>
+                                  <span className="ms-badge aaa">AAA ✓</span>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="ms-none">No accessible options found</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                );
+              }
+
+              return SUGG_GROUPS.map(group => {
+                const lighter = findSuggestion(modalFg, modalBg, 'lighter', modal.target, group.min);
+                const darker  = findSuggestion(modalFg, modalBg, 'darker',  modal.target, group.min);
+                return (
+                  <div key={group.label} className="sugg-group">
+                    <div className={'sugg-group-lbl ' + group.cls}>
+                      {group.label + ' Compliant Suggestions'}
+                    </div>
+                    <div className="m-suggs">
+                      {[['Lighter', lighter], ['Darker', darker]].map(([lbl, res]) => (
+                        <div
+                          key={lbl}
+                          className={'m-sugg' + (modal.picked === res?.hex ? ' picked' : '')}
+                          onClick={() => { if (res) setModal(m => ({ ...m, picked: res.hex })); }}
+                        >
+                          <div className="ms-lbl">{lbl}</div>
+                          {res ? (
+                            <div>
+                              <div className="ms-swatch" style={{ background: res.hex }} />
+                              <div className="ms-hex">{res.hex}</div>
+                              <div className="ms-meta">
+                                <span className="ms-ratio-pill">{res.ratio.toFixed(1)}:1</span>
+                                <span className={'ms-badge ' + group.cls}>{group.label} ✓</span>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="ms-none">No accessible options found</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              });
+            })()}
             <div className="modal-ftr">
               <button className="m-cancel" onClick={closeModal}>Cancel</button>
               <button className="m-update" disabled={!modal.picked} onClick={applyModal}>
