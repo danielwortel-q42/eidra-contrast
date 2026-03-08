@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -100,7 +100,7 @@ function TogglePill({ value, options, onChange }) {
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export default function Home() {
+function HomeInner() {
   
   const router        = useRouter();
   const searchParams  = useSearchParams();
@@ -1019,5 +1019,13 @@ export default function Home() {
         <img src="/Eidra_Q42_Black.svg" alt="Eidra Q42" style={{ height: 32, filter: 'invert(1)' }} />
       </footer>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={null}>
+      <HomeInner />
+    </Suspense>
   );
 }
