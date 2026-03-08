@@ -101,14 +101,7 @@ function TogglePill({ value, options, onChange }) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export default function Home() {
-  return (
-    <Suspense>
-      <HomeContent />
-    </Suspense>
-  );
-}
-
-function HomeContent() {
+  
   const router        = useRouter();
   const searchParams  = useSearchParams();
   const containerRef  = useRef(null);
