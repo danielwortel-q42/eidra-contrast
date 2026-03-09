@@ -496,8 +496,7 @@ function HomeInner() {
       <div className="topbar">
         <div>
           <h1 onClick={clear} style={{ cursor: 'pointer' }}>
-            Extract & check <span style={{ paddingLeft: 20 }}>colour palettes </span><br />
-            for WCAG 2.2 compliance
+            Colour Contrast Checker
           </h1>
         </div>
         <div className="topbar-right">
@@ -579,7 +578,7 @@ function HomeInner() {
       {/* Empty / one-colour state */}
       {!showMatrix && (
         <div className="empty">
-          <h2>{n === 0 ? "Extract any website's colour palette on contrast compliance" : "You're almost there…"}</h2>
+          <h2>{n === 0 ? "Extract & check colour palettes for WCAG 2.2 compliance" : "You're almost there…"}</h2>
           <p>
             {n === 0
               ? 'Enter a URL to automatically extract the dominant colours from any public website, or add HEX codes manually to test specific combinations. We scan CSS files to identify the most used colours and calculate their contrast ratios. The tool checks them against WCAG 2.2 standards, suggests AA or AAA‑compliant alternatives, and lets you export a shareable report for clients or teams.'
