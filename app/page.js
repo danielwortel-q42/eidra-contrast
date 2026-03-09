@@ -496,7 +496,7 @@ function HomeInner() {
       <div className="topbar">
         <div>
           <h1 onClick={clear} style={{ cursor: 'pointer' }}>
-            Colour Contrast Checker
+            Colour <span style={{ paddingLeft: 20 }}>Contrast</span> Checker
           </h1>
         </div>
         <div className="topbar-right">
