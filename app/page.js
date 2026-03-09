@@ -496,8 +496,8 @@ function HomeInner() {
       <div className="topbar">
         <div>
           <h1 onClick={clear} style={{ cursor: 'pointer' }}>
-            Colour <span style={{ paddingLeft: 20 }}>Contrast </span><br />
-            Checker
+            Extract & check <span style={{ paddingLeft: 20 }}>colour palettes </span><br />
+            for WCAG 2.2 compliance
           </h1>
         </div>
         <div className="topbar-right">
@@ -579,22 +579,20 @@ function HomeInner() {
       {/* Empty / one-colour state */}
       {!showMatrix && (
         <div className="empty">
-          <h2>{n === 0 ? "Extract any website's colour palette." : "You're almost there…"}</h2>
+          <h2>{n === 0 ? "Extract any website's colour palette on contrast compliance" : "You're almost there…"}</h2>
           <p>
             {n === 0
-              ? 'Enter a URL to pull dominant colours from any public website, or enter a HEX code to build a palette manually — then check them against WCAG accessibility standards.'
+              ? 'Enter a URL to automatically extract the dominant colours from any public website, or add HEX codes manually to test specific combinations. We scan CSS files to identify the most used colours and calculate their contrast ratios. The tool checks them against WCAG 2.2 standards, suggests AA or AAA‑compliant alternatives, and lets you export a shareable report for clients or teams.'
               : 'We need at least two colours to start checking. Add one more!'}
           </p>
           {n === 0 && (
             <p style={{ marginTop: 16 }}>
-              Great design is not just about looking good — it is about working for everyone.
-              WCAG guidelines ensure your colours have enough contrast for people with visual
-              impairments, colour blindness, or situational limitations.
+              Great design is not just about looking good — it is about working for everyone. WCAG 2.2 ensures sufficient contrast for users with visual impairments, colour blindness, or situational limitations. With the European Accessibility Act (EAA), accessibility is increasingly a legal requirement, making compliant colour systems essential, not optional.
             </p>
           )}
           <div className="empty-hint">
             {n === 0
-              ? <span>Paste a URL or type a HEX like <code>#FF885A</code> and press <code>Enter</code></span>
+              ? <span>Add any URL (e.g., www.eidra.com) or HEX code (e.g., <code>#FF885A</code>, <code>#E5E5E5</code>) manually and press Enter.</span>
               : <span>Add another HEX colour and press <code>Enter</code></span>
             }
           </div>
