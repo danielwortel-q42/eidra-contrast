@@ -584,11 +584,6 @@ function HomeInner() {
               ? 'Enter a URL to automatically extract the dominant colours from any public website, or add HEX codes manually to test specific combinations. We scan CSS files to identify the most used colours and calculate their contrast ratios. The tool checks them against WCAG 2.2 standards, suggests AA or AAA‑compliant alternatives, and lets you export a shareable report for clients or teams.'
               : 'We need at least two colours to start checking. Add one more!'}
           </p>
-          {n === 0 && (
-            <p style={{ marginTop: 16 }}>
-              Great design is not just about looking good — it is about working for everyone. WCAG 2.2 ensures sufficient contrast for users with visual impairments, colour blindness, or situational limitations. With the European Accessibility Act (EAA), accessibility is increasingly a legal requirement, making compliant colour systems essential, not optional.
-            </p>
-          )}
           <div className="empty-hint">
             {n === 0
               ? <span>Add any URL (e.g., www.eidra.com) or HEX code (e.g., <code>#FF885A</code>, <code>#E5E5E5</code>) manually and press Enter.</span>
