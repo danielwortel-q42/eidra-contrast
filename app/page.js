@@ -835,7 +835,7 @@ function HomeInner() {
               )}
             </div>
             {comboView === 'grid' ? (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10, width: '100%', marginTop: 20 }}>
+              <div className="combo-grid">
                 {list.map((combo, i) => <Card key={i} combo={combo} onCopy={copyHex} />)}
               </div>
             ) : (
