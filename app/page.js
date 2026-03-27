@@ -126,6 +126,8 @@ function HomeInner() {
   
   const [comboView,    setComboView]    = useState('grid');
   const [, forceUpdate]                = useState(0);
+  const [pickerColors, setPickerColors] = useState(null);
+  const [pickerSel,    setPickerSel]    = useState(new Set());
 
   // Dismiss active tile when tapping outside
   useEffect(() => {
@@ -232,9 +234,10 @@ function HomeInner() {
         const res  = await fetch('/api/extract?url=' + encodeURIComponent(raw));
         const data = await res.json();
         if (!res.ok || !data.colors?.length) throw new Error(data.error || 'No colours found');
-        const extracted = data.colors.map(c => c.hex.toUpperCase());
+        const all = data.colors.map(c => ({ ...c, hex: c.hex.toUpperCase() }));
         setSourceUrl(raw);
-        setColours(extracted);
+        setPickerColors(all);
+        setPickerSel(new Set(all.slice(0, 6).map(c => c.hex)));
         setCanUndo(false);
       } catch (err) {
                   setError(err.message === 'No colours found' ? 'No colours were found because this site likely loads its styles via JavaScript, which our extractor cannot detect.' : err.message);
@@ -472,8 +475,15 @@ function HomeInner() {
       });
     };
 
-    drawSection(combos.filter(c =>  c.passes), 'Compliant Combinations',     combos.filter(c =>  c.passes).length + ' combinations are compliant');
-    drawSection(combos.filter(c => !c.passes), 'Non-Compliant Combinations', combos.filter(c => !c.passes).length + ' combinations are non-compliant');
+    const aaaAll      = combos.filter(c =>  c.aaaSmall);
+    const aaAllPart   = combos.filter(c =>  c.aaSmall && !c.aaaSmall);
+    const aaLargeOnly = combos.filter(c => !c.aaSmall &&  c.aaLarge);
+    const nonCompliant = combos.filter(c => !c.passes);
+
+    drawSection(aaaAll,      'Maximum Contrast — Fully AAA',        aaaAll.length + ' combination' + (aaaAll.length !== 1 ? 's' : '') + ' · Meets AAA for all text sizes, no restrictions · Large text: 18pt+ regular or 14pt+ bold');
+    drawSection(aaAllPart,   'AA Ready — All Text, Partially AAA',  aaAllPart.length + ' combination' + (aaAllPart.length !== 1 ? 's' : '') + ' · Meets AA for all text, AAA for large text · Large text: 18pt+ regular or 14pt+ bold');
+    drawSection(aaLargeOnly, 'Large Text Only — Partly AA',         aaLargeOnly.length + ' combination' + (aaLargeOnly.length !== 1 ? 's' : '') + ' · Meets AA for large text only, not suitable for small text · Large text: 18pt+ regular or 14pt+ bold');
+    drawSection(nonCompliant, 'Non-Compliant Combinations',         nonCompliant.length + ' combination' + (nonCompliant.length !== 1 ? 's' : '') + ' do not meet AA or AAA standards');
     doc.save('colour-contrast.pdf');
   };
 
@@ -585,8 +595,94 @@ function HomeInner() {
         </div>
       </div>
 
+      {/* Colour picker — shown after URL extraction before committing to matrix */}
+      {pickerColors && (
+        <div className="picker">
+          <div className="picker-header">
+            <h2 className="picker-title">
+              {pickerColors.length} colours found on <span className="picker-url-pill">{sourceUrl}</span>
+            </h2>
+            <p className="picker-desc body-sm">
+              We raided the stylesheets so you don't have to. Every colour we found is here — the pre-selected ones carry the most visual weight. The tags tell you where each colour shows up: background, text, or border. Pick your suspects and let's check their contrast.
+            </p>
+          </div>
+
+          <div className="picker-grid">
+            {pickerColors.map(({ hex, pct, bgCount, fgCount, borderCount, fillCount }) => {
+              const sel  = pickerSel.has(hex);
+              const tags = [
+                bgCount     > 0 && { label: 'BG',     count: bgCount },
+                fgCount     > 0 && { label: 'Text',   count: fgCount },
+                borderCount > 0 && { label: 'Border', count: borderCount },
+                fillCount   > 0 && { label: 'Fill',   count: fillCount },
+              ].filter(Boolean);
+              const hasNoUsage = tags.length === 0;
+              return (
+                <div
+                  key={hex}
+                  className={'picker-item' + (sel ? ' sel' : '')}
+                  onClick={() => setPickerSel(prev => {
+                    const next = new Set(prev);
+                    if (next.has(hex)) next.delete(hex); else next.add(hex);
+                    return next;
+                  })}
+                >
+                  <div className="picker-swatch" style={{ background: hex }}>
+                    {sel && (
+                      <div className="swatch-check">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none">
+                          <path d="M5 13l4 4L19 7" stroke="#111" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                  <div className="picker-item-info">
+                    <span className="picker-hex">{hex}</span>
+                    <div className="picker-tags">
+                      {tags.map(({ label, count }) => (
+                        <span key={label} className="picker-tag">{label} {count}</span>
+                      ))}
+                      {hasNoUsage && <span className="picker-tag picker-tag--other">CSS var</span>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="picker-actions">
+            <button
+              className="btn-primary"
+              disabled={pickerSel.size < 2}
+              onClick={() => {
+                const ordered = pickerColors.filter(c => pickerSel.has(c.hex)).map(c => c.hex);
+                setColours(ordered);
+                setDisabled(new Set());
+                setPickerColors(null);
+                setPickerSel(new Set());
+              }}
+            >
+              Analyse colours
+            </button>
+            <button
+              className="btn-primary danger"
+              disabled={pickerSel.size === 0}
+              onClick={() => setPickerSel(new Set())}
+            >
+              Clear
+            </button>
+            <button
+              className="btn-primary ghost"
+              onClick={() => { setPickerColors(null); setPickerSel(new Set()); }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Empty / one-colour state */}
-      {!showMatrix && (
+      {!pickerColors && !showMatrix && (
         <div className="empty">
           <h2>{n === 0 ? "Extract & check colour palettes for WCAG 2.2 compliance" : "You're almost there…"}</h2>
           <p>
@@ -601,13 +697,13 @@ function HomeInner() {
       )}
 
       {/* Matrix */}
-      {showMatrix && (
-        <div className="fade-up" style={{ marginTop: 8, width: '100%', overflowX: 'auto' }}>
+      {!pickerColors && showMatrix && (
+        <div className="fade-up matrix-wrap">
           <div
             className="matrix"
             style={{ gridTemplateColumns: rowHdrW + 'px repeat(' + n + ', ' + tileW + 'px)' }}
           >
-            <div style={{ width: rowHdrW, height: 36 }} />
+            <div className="matrix-corner" style={{ width: rowHdrW }} />
             {colours.map(c => (
               <div key={c} className="col-hdr" style={{ background: c, color: readableInk(c) }} onClick={() => copyHex(c)}>
                 {c}
@@ -661,30 +757,23 @@ function HomeInner() {
                         }
                       }}
                     >
-                      <div className="notch" style={{ opacity: off ? 0.35 : 1 }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div className="notch">
+                        <div className="notch-col">
                           {[['Small', passes.aaSmall, passes.aaaSmall], ['Large', passes.aaLarge, passes.aaaLarge]].map(([label, aa, aaa]) => {
                             const color = aaa ? '#4ade80' : aa ? '#facc15' : '#f87171';
                             const badge = aaa ? 'AAA ✓' : aa ? 'AA ✓' : 'AA ✗';
                             return (
-                              <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                <span style={{ color: 'var(--muted)', fontSize: 12, width: 38, flexShrink: 0 }}>{label}</span>
-                                <span style={{ fontSize: 12, fontWeight: 800, color, background: color + '22', padding: '1px 6px', borderRadius: 4 }}>{badge}</span>
+                              <div key={label} className="notch-row">
+                                <span className="notch-lbl">{label}</span>
+                                <span className="tile-badge" style={{ color, background: color + '22' }}>{badge}</span>
                               </div>
                             );
                           })}
                         </div>
                       </div>
-                      <div style={{
-                        position: 'absolute', bottom: 10, left: '50%',
-                        transform: 'translateX(-50%)',
-                        background: 'rgba(255,255,255,0.92)', color: '#111',
-                        fontSize: 12, fontWeight: 800,
-                        padding: '3px 10px', borderRadius: 99,
-                        whiteSpace: 'nowrap', zIndex: 1,
-                      }}>{ratio.toFixed(1) + ':1'}</div>
+                      <div className="tile-ratio">{ratio.toFixed(1) + ':1'}</div>
                       {off && (
-                        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3, pointerEvents: 'none' }}>
+                        <div className="tile-disabled-icon">
                           <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
                             <circle cx="16" cy="16" r="14" stroke="rgba(255,255,255,0.7)" strokeWidth="2" />
                             <line x1="8" y1="8" x2="24" y2="24" stroke="rgba(255,255,255,0.7)" strokeWidth="2" strokeLinecap="round" />
@@ -693,7 +782,7 @@ function HomeInner() {
                       )}
                       <div className="aa-lg">Ag</div>
                       <div className="aa-sm">Ag</div>
-                      <div className="tile-ov" style={{ zIndex: 10 }}>
+                      <div className="tile-ov">
                         <button
                           className="ov-btn"
                           onTouchEnd={e => {
@@ -726,7 +815,7 @@ function HomeInner() {
       )}
 
       {/* Combination cards */}
-      {showMatrix && (() => {
+      {!pickerColors && showMatrix && (() => {
         const combos = [];
         colours.forEach((fg, fi) => colours.forEach((bg, bi) => {
           if (fg === bg) return;
@@ -749,39 +838,27 @@ function HomeInner() {
         const aaaAllCombos       = compliantCombos.filter(c =>  c.aaaSmall);
 
         const Card = ({ combo, onCopy }) => (
-          <div style={{
-            borderRadius: 12, overflow: 'hidden',
-            border: '1px solid var(--border)',
-            background: 'var(--bg-raised)',
-            flex: '1 1 160px',
-          }}>
-            <div style={{ background: combo.bg, padding: '14px 12px', textAlign: 'center' }}>
-              <div style={{ color: combo.fg, fontSize: 28, fontWeight: 800, lineHeight: 1 }}>Ag</div>
-              <div style={{ marginTop: 8, display: 'inline-block', background: 'rgba(255,255,255,0.92)', color: '#111', fontSize: 11, fontWeight: 800, padding: '2px 8px', borderRadius: 99 }}>
-                {combo.ratio.toFixed(1)}:1
-              </div>
+          <div className="combo-card">
+            <div className="combo-card-header" style={{ background: combo.bg }}>
+              <div className="combo-card-ag" style={{ color: combo.fg }}>Ag</div>
+              <div className="combo-card-ratio">{combo.ratio.toFixed(1)}:1</div>
             </div>
-            <div style={{ padding: '10px 12px' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--white)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
-              {[combo.fg, combo.bg].map((hex, i) => {
-                const ink = readableInk(hex);
-                return (
+            <div className="combo-card-body">
+              <div className="combo-card-chips">
+                {[combo.fg, combo.bg].map((hex, i) => (
                   <React.Fragment key={hex + i}>
-                    <span className="chip" style={{ background: hex, color: ink, cursor: 'pointer' }} onClick={() => onCopy(hex)}>
-                      {hex}
-                    </span>
-                    {i === 0 && <span style={{ color: 'var(--muted)', fontSize: 10 }}>on</span>}
+                    <span className="chip" style={{ background: hex, color: readableInk(hex), cursor: 'pointer' }} onClick={() => onCopy(hex)}>{hex}</span>
+                    {i === 0 && <span className="combo-on">on</span>}
                   </React.Fragment>
-                );
-              })}
-            </div>
+                ))}
+              </div>
               {[['Small', combo.aaSmall, combo.aaaSmall], ['Large', combo.aaLarge, combo.aaaLarge]].map(([label, aa, aaa]) => {
                 const color = aaa ? '#4ade80' : aa ? '#facc15' : '#f87171';
                 const badge = aaa ? 'AAA ✓' : aa ? 'AA ✓' : 'AA ✗';
                 return (
-                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
-                    <span style={{ color: 'var(--muted)', fontSize: 11, width: 36, flexShrink: 0 }}>{label}</span>
-                    <span style={{ fontSize: 11, fontWeight: 800, color, background: color + '22', padding: '1px 6px', borderRadius: 4 }}>{badge}</span>
+                  <div key={label} className="combo-badge-row">
+                    <span className="combo-badge-lbl">{label}</span>
+                    <span className="combo-badge" style={{ color, background: color + '22' }}>{badge}</span>
                   </div>
                 );
               })}
@@ -790,25 +867,20 @@ function HomeInner() {
         );
 
         const ComboRow = ({ combo }) => (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg-raised)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px' }}>
-            <div style={{ background: combo.bg, borderRadius: 8, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <span style={{ color: combo.fg, fontSize: 18, fontWeight: 800 }}>Ag</span>
+          <div className="combo-row">
+            <div className="combo-row-swatch" style={{ background: combo.bg }}>
+              <span className="combo-row-ag" style={{ color: combo.fg }}>Ag</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flex: 1, flexWrap: 'wrap' }}>
-              {[combo.fg, combo.bg].map((hex, j) => {
-                const ink = readableInk(hex);
-                return (
-                  <React.Fragment key={hex + j}>
-                    <span className="chip" style={{ background: hex, color: ink, cursor: 'pointer' }} onClick={() => copyHex(hex)}>{hex}</span>
-                    {j === 0 && <span style={{ color: 'var(--muted)', fontSize: 10 }}>on</span>}
-                  </React.Fragment>
-                );
-              })}
+            <div className="combo-row-chips">
+              {[combo.fg, combo.bg].map((hex, j) => (
+                <React.Fragment key={hex + j}>
+                  <span className="chip" style={{ background: hex, color: readableInk(hex), cursor: 'pointer' }} onClick={() => copyHex(hex)}>{hex}</span>
+                  {j === 0 && <span className="combo-on">on</span>}
+                </React.Fragment>
+              ))}
             </div>
-            <div style={{ background: 'rgba(255,255,255,0.92)', color: '#111', fontSize: 11, fontWeight: 800, padding: '2px 8px', borderRadius: 99, flexShrink: 0 }}>
-              {combo.ratio.toFixed(1)}:1
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flexShrink: 0 }}>
+            <div className="combo-row-ratio">{combo.ratio.toFixed(1)}:1</div>
+            <div className="combo-row-badges">
               {[
                 { label: 'Small', aa: combo.aaSmall, aaa: combo.aaaSmall },
                 { label: 'Large', aa: combo.aaLarge, aaa: combo.aaaLarge },
@@ -816,9 +888,9 @@ function HomeInner() {
                 const color = aaa ? '#4ade80' : aa ? '#facc15' : '#f87171';
                 const badge = aaa ? 'AAA ✓' : aa ? 'AA ✓' : 'AA ✗';
                 return (
-                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <span style={{ color: 'var(--muted)', fontSize: 11, width: 36, flexShrink: 0 }}>{label}</span>
-                    <span style={{ fontSize: 11, fontWeight: 800, color, background: color + '22', padding: '1px 6px', borderRadius: 4 }}>{badge}</span>
+                  <div key={label} className="combo-row-badge-row">
+                    <span className="combo-row-badge-lbl">{label}</span>
+                    <span className="combo-badge" style={{ color, background: color + '22' }}>{badge}</span>
                   </div>
                 );
               })}
@@ -826,12 +898,12 @@ function HomeInner() {
           </div>
         );
 
-        const Section = ({ title, sub, list, showToggle, columns = 3 }) => list.length === 0 ? null : (
-          <div style={{ marginTop: 64 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', gap: 12 }}>
+        const Section = ({ title, sub, list, showToggle }) => list.length === 0 ? null : (
+          <div className="combos-section">
+            <div className="combos-sub-header">
               <div>
-                <h2 style={{ fontSize: '1.6rem', fontWeight: 800, marginBottom: 6 }}>{title}</h2>
-                <p style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>{sub}</p>
+                <h2 className="combos-title">{title}</h2>
+                <p className="combos-desc">{sub}</p>
               </div>
               {showToggle && (
                 <TogglePill
@@ -846,25 +918,8 @@ function HomeInner() {
                 {list.map((combo, i) => <Card key={i} combo={combo} onCopy={copyHex} />)}
               </div>
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: columns === 1 ? 'calc(33.333% - 11px)' : 'repeat(3, 1fr)', gap: 16, marginTop: 20, alignItems: 'start' }}>
-                {columns === 3 ? (
-                  [
-                    list.filter(c => c.aaaSmall),
-                    list.filter(c => c.aaSmall && !c.aaaSmall),
-                    list.filter(c => !c.aaSmall && c.aaLarge),
-                  ].map((items, colIdx) => (
-                    <div key={colIdx} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {items.length === 0
-                        ? <div style={{ fontSize: 12, color: 'var(--muted)', padding: '10px 0' }}>No combinations</div>
-                        : items.map((combo, i) => <ComboRow key={i} combo={combo} />)
-                      }
-                    </div>
-                  ))
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {list.map((combo, i) => <ComboRow key={i} combo={combo} />)}
-                  </div>
-                )}
+              <div className="combos-group-list">
+                {list.map((combo, i) => <ComboRow key={i} combo={combo} />)}
               </div>
             )}
           </div>
@@ -879,22 +934,22 @@ function HomeInner() {
                 { title: 'AA Compliant — Large Text Only',         sub: 'Meets AA for large text only, not suitable for small text',   list: aaLargeOnlyCombos },
               ].filter(g => g.list.length > 0);
               return (
-                <div style={{ marginTop: 64 }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 32, flexWrap: 'wrap', gap: 12 }}>
+                <div className="combos-section">
+                  <div className="combos-header">
                     <div>
-                      <h2 style={{ fontSize: '1.6rem', fontWeight: 800, marginBottom: 6 }}>Compliant Combinations</h2>
-                      <p style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>{compliantCombos.length + ' combination' + (compliantCombos.length !== 1 ? 's' : '') + ' meet AA or AAA standards'}</p>
-                      <p style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: 4 }}>Large text is defined as 18pt (24px) or larger for regular weight, or 14pt (≈19px) or larger for bold.</p>
+                      <h2 className="combos-title">Compliant Combinations</h2>
+                      <p className="combos-desc">{compliantCombos.length + ' combination' + (compliantCombos.length !== 1 ? 's' : '') + ' meet AA or AAA standards'}</p>
+                      <p className="combos-note">Large text is defined as 18pt (24px) or larger for regular weight, or 14pt (≈19px) or larger for bold.</p>
                     </div>
                     <TogglePill value={comboView} options={[{ value: 'grid', label: 'Card' }, { value: 'list', label: 'List' }]} onChange={setComboView} />
                   </div>
                   {comboView === 'list' ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(' + groups.length + ', 1fr)', gap: 24, alignItems: 'start' }}>
+                    <div className="combos-list-grid" style={{ gridTemplateColumns: 'repeat(' + groups.length + ', 1fr)' }}>
                       {groups.map(({ title, sub, list }) => (
                         <div key={title}>
-                          <h3 style={{ fontSize: '1rem', fontWeight: 800, marginBottom: 4 }}>{title}</h3>
-                          <p style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: 12 }}>{sub} · {list.length} combination{list.length !== 1 ? 's' : ''}</p>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <h3 className="combos-group-title">{title}</h3>
+                          <p className="combos-group-desc">{sub} · {list.length} combination{list.length !== 1 ? 's' : ''}</p>
+                          <div className="combos-group-list">
                             {list.map((combo, i) => <ComboRow key={i} combo={combo} />)}
                           </div>
                         </div>
@@ -902,9 +957,9 @@ function HomeInner() {
                     </div>
                   ) : (
                     groups.map(({ title, sub, list }) => (
-                      <div key={title} style={{ marginBottom: 48 }}>
-                        <h3 style={{ fontSize: '1rem', fontWeight: 800, marginBottom: 4 }}>{title}</h3>
-                        <p style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: 16 }}>{sub} · {list.length} combination{list.length !== 1 ? 's' : ''}</p>
+                      <div key={title} className="combos-group">
+                        <h3 className="combos-group-title">{title}</h3>
+                        <p className="combos-group-desc">{sub} · {list.length} combination{list.length !== 1 ? 's' : ''}</p>
                         <div className="combo-grid">
                           {list.map((combo, i) => <Card key={i} combo={combo} onCopy={copyHex} />)}
                         </div>

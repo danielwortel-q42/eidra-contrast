@@ -50,15 +50,32 @@ const BROAD_SELECTOR  = /^(\*|html|body\s*\*|a:visited|::selection)$/i;
 const BRAND_VAR = /brand|primary|accent|highlight|key|main|hero|cta|theme/i;
 
 function extractCSSVars(text) {
-  const vars = {};
+  // First pass: collect all raw variable declarations
+  const raw = {};
   const declRe = /(--[\w-]+)\s*:\s*([^;}{]+)/g;
   let d;
   while ((d = declRe.exec(text)) !== null) {
-    const val = d[2].trim();
+    raw[d[1].trim()] = d[2].trim();
+  }
+
+  // Second pass: resolve each variable to a hex, following var() chains
+  const resolve = (val, seen = new Set(), depth = 0) => {
+    if (depth > 10) return null;
     const hexM = val.match(/#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![0-9a-fA-F])/);
-    if (hexM) { vars[d[1].trim()] = normalizeHex(hexM[1]); continue; }
+    if (hexM) return normalizeHex(hexM[1]);
     const rgbM = val.match(/rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/);
-    if (rgbM) { vars[d[1].trim()] = rgbToHex(+rgbM[1], +rgbM[2], +rgbM[3]); }
+    if (rgbM) return rgbToHex(+rgbM[1], +rgbM[2], +rgbM[3]);
+    const varM = val.match(/var\(\s*(--[\w-]+)/);
+    if (varM && raw[varM[1]] && !seen.has(varM[1])) {
+      return resolve(raw[varM[1]], new Set([...seen, varM[1]]), depth + 1);
+    }
+    return null;
+  };
+
+  const vars = {};
+  for (const [name, val] of Object.entries(raw)) {
+    const hex = resolve(val);
+    if (hex) vars[name] = hex;
   }
   return vars;
 }
@@ -88,11 +105,46 @@ function weightFor(prop) {
 
 // ── Colour parsing ────────────────────────────────────────────────────────────
 
+function countVarReferencesByRole(text, vars) {
+  // Walk rule-by-rule; when a property value contains var(--name),
+  // resolve it to a hex and count it in the right role bucket.
+  const bg = {}, fg = {}, border = {}, fill = {};
+  const ruleRe = /([^{}]*)\{([^{}]*)\}/g;
+  let rule;
+  while ((rule = ruleRe.exec(text)) !== null) {
+    const block = rule[2];
+    const declRe = /([\w-]+)\s*:\s*([^;]+)/g;
+    let d;
+    while ((d = declRe.exec(block)) !== null) {
+      const prop  = d[1].toLowerCase();
+      const isBg     = prop.includes('background');
+      const isFg     = prop === 'color';
+      const isBorder = prop.includes('border-color') || prop === 'border' || prop === 'outline-color';
+      const isFill   = prop === 'fill' || prop === 'stop-color';
+      if (!isBg && !isFg && !isBorder && !isFill) continue;
+      const varRe = /var\(\s*(--[\w-]+)/g;
+      let v;
+      while ((v = varRe.exec(d[2])) !== null) {
+        const hex = vars[v[1]];
+        if (!hex) continue;
+        if (isBg)     bg[hex]     = (bg[hex]     || 0) + 1;
+        if (isFg)     fg[hex]     = (fg[hex]     || 0) + 1;
+        if (isBorder) border[hex] = (border[hex] || 0) + 1;
+        if (isFill)   fill[hex]   = (fill[hex]   || 0) + 1;
+      }
+    }
+  }
+  return { bg, fg, border, fill };
+}
+
 function parseColors(text) {
-  const map     = {};  // hex → total weighted score
-  const bgSet   = new Set(); // colours seen as background
-  const fgSet   = new Set(); // colours seen as foreground/text
+  const map        = {};  // hex → total weighted score
+  const bgCount     = {}; // hex → times used as background
+  const fgCount     = {}; // hex → times used as text/foreground
+  const borderCount = {}; // hex → times used as border
+  const fillCount   = {}; // hex → times used as fill (SVG/icon)
   const vars    = extractCSSVars(text);
+  const varByRole = countVarReferencesByRole(text, vars);
 
   function add(hex, weight) {
     if (isUseful(hex)) map[hex] = (map[hex] || 0) + weight;
@@ -126,31 +178,43 @@ function parseColors(text) {
       const val = resolveVars(raw, vars);
       const finalWeight = w * selectorMult * varBoost;
 
-      const isBackground = prop.includes('background') || prop.includes('fill');
+      const isBackground = prop.includes('background');
       const isForeground = prop === 'color';
+      const isBorder     = prop.includes('border-color') || prop === 'border' || prop === 'outline-color';
+      const isFill       = prop === 'fill' || prop === 'stop-color';
 
       const hexRe = /#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![0-9a-fA-F])/g;
       let m;
       while ((m = hexRe.exec(val)) !== null) {
         const hex = normalizeHex(m[1]);
         add(hex, finalWeight);
-        if (isBackground) bgSet.add(hex);
-        if (isForeground) fgSet.add(hex);
+        if (isBackground) bgCount[hex]     = (bgCount[hex]     || 0) + 1;
+        if (isForeground) fgCount[hex]     = (fgCount[hex]     || 0) + 1;
+        if (isBorder)     borderCount[hex] = (borderCount[hex] || 0) + 1;
+        if (isFill)       fillCount[hex]   = (fillCount[hex]   || 0) + 1;
       }
 
       const rgbRe = /rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/g;
       while ((m = rgbRe.exec(val)) !== null) {
         const hex = rgbToHex(+m[1], +m[2], +m[3]);
         add(hex, finalWeight);
-        if (isBackground) bgSet.add(hex);
-        if (isForeground) fgSet.add(hex);
+        if (isBackground) bgCount[hex]     = (bgCount[hex]     || 0) + 1;
+        if (isForeground) fgCount[hex]     = (fgCount[hex]     || 0) + 1;
+        if (isBorder)     borderCount[hex] = (borderCount[hex] || 0) + 1;
+        if (isFill)       fillCount[hex]   = (fillCount[hex]   || 0) + 1;
       }
     }
   }
 
+  // Merge var-reference counts into the direct counts
+  for (const [hex, n] of Object.entries(varByRole.bg))     bgCount[hex]     = (bgCount[hex]     || 0) + n;
+  for (const [hex, n] of Object.entries(varByRole.fg))     fgCount[hex]     = (fgCount[hex]     || 0) + n;
+  for (const [hex, n] of Object.entries(varByRole.border)) borderCount[hex] = (borderCount[hex] || 0) + n;
+  for (const [hex, n] of Object.entries(varByRole.fill))   fillCount[hex]   = (fillCount[hex]   || 0) + n;
+
   // Cross-role bonus: colours used as both bg and fg are intentional brand colours
-  for (const hex of bgSet) {
-    if (fgSet.has(hex) && map[hex]) map[hex] = Math.round(map[hex] * 1.5);
+  for (const hex of Object.keys(bgCount)) {
+    if (fgCount[hex] && map[hex]) map[hex] = Math.round(map[hex] * 1.5);
   }
 
   const sorted = Object.entries(map)
@@ -171,17 +235,16 @@ function parseColors(text) {
       count: g.reduce((s, c) => s + c.count, 0),
     }))
     .sort((a, b) => b.count - a.count)
-    .slice(0, 6);
+    .slice(0, 20);
 
-  return result;
+  return { result, bgCount, fgCount, borderCount, fillCount };
 }
 
 function toPercent(colors) {
   const total = colors.reduce((s, c) => s + c.count, 0);
   return colors.map(c => ({
-    hex:   c.hex,
-    count: c.count,
-    pct:   Math.round((c.count / total) * 100),
+    ...c,
+    pct: Math.round((c.count / total) * 100),
   }));
 }
 
@@ -194,12 +257,26 @@ async function fetchCSS(html, baseUrl) {
 
   root.querySelectorAll('style').forEach(s => { combined += s.rawText + '\n'; });
 
-  const hrefs = root
-    .querySelectorAll('link[rel="stylesheet"]')
-    .map(l => l.getAttribute('href'))
-    .filter(Boolean)
-    .map(h => h.startsWith('http') ? h : origin + (h.startsWith('/') ? h : '/' + h))
-    .slice(0, 8);
+  // Collect CSS hrefs from both stylesheet links and preload hints
+  const hrefSet = new Set();
+  const toAbsolute = h => h.startsWith('http') ? h : origin + (h.startsWith('/') ? h : '/' + h);
+
+  root.querySelectorAll('link[rel="stylesheet"]').forEach(l => {
+    const h = l.getAttribute('href');
+    if (h) hrefSet.add(toAbsolute(h));
+  });
+  root.querySelectorAll('link[rel="preload"][as="style"]').forEach(l => {
+    const h = l.getAttribute('href');
+    if (h) hrefSet.add(toAbsolute(h));
+  });
+
+  // Also scan inline scripts for Next.js / webpack CSS chunk manifests
+  const scriptText = root.querySelectorAll('script').map(s => s.rawText).join('\n');
+  const chunkRe = /\/_next\/static\/css\/[^"']+\.css/g;
+  let cm;
+  while ((cm = chunkRe.exec(scriptText)) !== null) hrefSet.add(origin + cm[0]);
+
+  const hrefs = [...hrefSet].slice(0, 24);
 
   await Promise.allSettled(
     hrefs.map(async href => {
@@ -301,20 +378,35 @@ export async function GET(request) {
     const { css: cssText } = await fetchCSS(html, parsed.href);
 
     const baseColors = extractBaseColors(html, cssText);
-    const allColors  = parseColors(cssText);
+    const { result: allColors, bgCount, fgCount, borderCount, fillCount } = parseColors(cssText);
+
+    const usageCounts = hex => ({
+      bgCount:     bgCount[hex]     || 0,
+      fgCount:     fgCount[hex]     || 0,
+      borderCount: borderCount[hex] || 0,
+      fillCount:   fillCount[hex]   || 0,
+    });
 
     const locked = [];
     ['bg', 'fg'].forEach(role => {
       const found = baseColors.find(b => b.role === role);
-      if (found) locked.push({ hex: found.hex, locked: true, role });
+      if (found) locked.push({
+        hex: found.hex, locked: true, role,
+        ...usageCounts(found.hex),
+        bgCount:     bgCount[found.hex]     || (role === 'bg' ? 1 : 0),
+        fgCount:     fgCount[found.hex]     || (role === 'fg' ? 1 : 0),
+      });
     });
 
     const accents = [];
     for (const c of allColors) {
       if (locked.some(l => colorDist(l.hex, c.hex) < 18)) continue;
       if (accents.some(a => colorDist(a.hex, c.hex) < 18)) continue;
-      accents.push({ hex: c.hex, locked: false, role: 'accent', count: c.count });
-      if (accents.length >= 6 - locked.length) break;
+      accents.push({
+        hex: c.hex, locked: false, role: 'accent', count: c.count,
+        ...usageCounts(c.hex),
+      });
+      if (accents.length >= 20 - locked.length) break;
     }
 
     const merged = [...locked, ...accents];
