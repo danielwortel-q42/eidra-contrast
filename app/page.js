@@ -201,6 +201,8 @@ function HomeInner() {
       next.splice(i, 0, moved);
       return next;
     });
+    setDisabled(new Set());
+    setCanUndo(false);
     setDragIndex(null);
     setDragOver(null);
   };
@@ -209,6 +211,7 @@ function HomeInner() {
   const handleKeyDown = async e => {
     if (e.key === 'Backspace' && inputVal === '' && colours.length) {
       setColours(c => c.slice(0, -1));
+      setDisabled(new Set());
       setCanUndo(false);
       return;
     }
@@ -258,6 +261,7 @@ function HomeInner() {
 
   const removeColour = i => {
     setColours(c => c.filter((_, idx) => idx !== i));
+    setDisabled(new Set());
     setCanUndo(false);
   };
 
@@ -752,7 +756,7 @@ function HomeInner() {
                 const ink = readableInk(hex);
                 return (
                   <React.Fragment key={hex + i}>
-                    <span className="chip" style={{ background: hex, color: ink, cursor: 'default' }}>
+                    <span className="chip" style={{ background: hex, color: ink, cursor: 'pointer' }} onClick={() => onCopy(hex)}>
                       {hex}
                     </span>
                     {i === 0 && <span style={{ color: 'var(--muted)', fontSize: 10 }}>on</span>}
