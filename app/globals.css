@@ -2,7 +2,8 @@
   --bg:        #111111;
   --bg-raised: #1a1a1a;
   --border:    #2a2a2a;
-  --muted:     #9ca3af;
+  --muted:     #a0a7b3;
+  --muted-mid: #b2b8c4;
   --accent:    #3b82f6;
   --accent-hv: #2563eb;
   --danger:    #f87171;
@@ -163,7 +164,7 @@ h1, h2, h3, h4, h5, h6 {
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 .url-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,0.2); }
-.url-input::placeholder { color: #666680; }
+.url-input input::placeholder { color: var(--muted-mid); }
 
 /* ── Section label ── */
 .section-label {
@@ -213,7 +214,7 @@ h1, h2, h3, h4, h5, h6 {
 .leg-hex       { width: 90px; font-family: monospace; font-size: 0.78rem; color: var(--muted); flex-shrink: 0; }
 .leg-bar-bg    { flex: 1; height: 6px; background: var(--bg-raised); border-radius: 99px; overflow: hidden; border: 1px solid var(--border); }
 .leg-bar-fill  { height: 100%; border-radius: 99px; transition: width 0.8s ease; }
-.leg-pct       { width: 38px; text-align: right; font-size: 0.75rem; color: #555; font-weight: 700; font-family: monospace; }
+.leg-pct       { width: 38px; text-align: right; font-size: 0.75rem; color: var(--muted); font-weight: 700; font-family: monospace; }
 
 /* ── Error / status ── */
 .error-msg  { color: var(--danger); font-size: 0.85rem; margin-bottom: 12px; }
@@ -262,9 +263,10 @@ h1, h2, h3, h4, h5, h6 {
 .tile {
   position: relative; border-radius: 11px;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  overflow: hidden; cursor: pointer; transition: transform .15s, box-shadow .15s;
+  overflow: hidden; cursor: pointer; transition: box-shadow .15s;
 }
-.tile:hover         { transform: scale(1.04); box-shadow: 0 6px 24px rgba(0,0,0,.6); z-index: 2; }
+.tile:hover         { box-shadow: inset 0 0 0 2px rgba(255,255,255,0.9); z-index: 2; }
+.tile.touch-active  { z-index: 2; }
 .tile.blank         { background: transparent !important; border: none; cursor: default; pointer-events: none; }
 .tile.off::after    { content: ''; position: absolute; inset: 0; background: rgba(0,0,0,.55); border-radius: 11px; pointer-events: none; }
 .notch {
@@ -272,7 +274,10 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--bg); border-radius: 0 11px 0 9px;
   padding: 5px 8px 6px; display: flex; flex-direction: column;
   align-items: flex-end; gap: 3px; white-space: nowrap; z-index: 1;
+  border-left: 2px solid transparent; border-bottom: 2px solid transparent;
+  transition: border-color .15s;
 }
+.tile:hover .notch { border-color: rgba(255,255,255,0.9); }
 .notch-badges { display: flex; gap: 5px; }
 .nbadge       { font-size: 10px; font-weight: 700; }
 .nbadge.pass  { color: var(--pass); }
@@ -287,7 +292,7 @@ h1, h2, h3, h4, h5, h6 {
   opacity: 0; pointer-events: none;
   transition: opacity 0.15s;
 }
-.tile:hover .tile-ov, .tile.touch-active .tile-ov {
+.tile.touch-active .tile-ov {
   opacity: 1;
   pointer-events: auto;
 }
@@ -315,7 +320,7 @@ h1, h2, h3, h4, h5, h6 {
 /* ── Modal toggle ── */
 .m-tabs       { display: flex; gap: 8px; margin-bottom: 18px; }
 .m-toggle     { display: inline-flex; background: #2a2a2a; border-radius: 10px; padding: 4px; gap: 0; position: relative; }
-.m-toggle-opt { position: relative; z-index: 1; padding: 8px 20px; border-radius: 7px; border: none; background: none; color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer; transition: color 0.2s; font-family: inherit; white-space: nowrap; }
+.m-toggle-opt { position: relative; z-index: 1; padding: 8px 20px; border-radius: 7px; border: none; background: none; color: var(--muted-mid); font-size: 13px; font-weight: 600; cursor: pointer; transition: color 0.2s; font-family: inherit; white-space: nowrap; }
 .m-toggle-opt.on   { color: #111; }
 .m-toggle-pill     { position: absolute; top: 4px; bottom: 4px; border-radius: 7px; background: #ffffff; box-shadow: 0 1px 4px rgba(0,0,0,0.35); transition: left 0.2s ease, width 0.2s ease; z-index: 0; pointer-events: none; }
 
@@ -341,7 +346,7 @@ h1, h2, h3, h4, h5, h6 {
 
 /* ── Modal footer ── */
 .modal-ftr { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
-.m-cancel  { background: #2a2a2a; border: none; color: #aaa; padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.m-cancel  { background: #2a2a2a; border: none; color: var(--muted-mid); padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
 .m-update  { background: var(--accent); border: none; color: var(--white); padding: 8px 18px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; }
 .m-update:disabled { opacity: .35; cursor: not-allowed; }
 

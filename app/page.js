@@ -137,7 +137,11 @@ function HomeInner() {
       activeTileRef.current = null;
     };
     document.addEventListener('touchend', handler);
-    return () => document.removeEventListener('touchend', handler);
+    document.addEventListener('mousedown', handler);
+    return () => {
+      document.removeEventListener('touchend', handler);
+      document.removeEventListener('mousedown', handler);
+    };
   }, []);
 
   // Recalculate layout on resize
@@ -289,8 +293,10 @@ function HomeInner() {
   const toggleDisable = (fi, bi) => {
     setDisabled(d => {
       const next = new Set(d);
-      const k = tileKey(fi, bi);
-      if (next.has(k)) next.delete(k); else next.add(k);
+      const k  = tileKey(fi, bi);
+      const km = tileKey(bi, fi);
+      if (next.has(k)) { next.delete(k); next.delete(km); }
+      else             { next.add(k);    next.add(km);    }
       return next;
     });
   };
@@ -589,10 +595,7 @@ function HomeInner() {
               : 'We need at least two colours to start checking. Add one more!'}
           </p>
           <div className="empty-hint">
-            {n === 0
-              ? <span>Add any URL (e.g., www.eidra.com) or HEX code (e.g., <code>#FF885A</code>, <code>#E5E5E5</code>) manually and press Enter.</span>
-              : <span>Add another HEX colour and press <code>Enter</code></span>
-            }
+            {n !== 0 && <span>Add another HEX colour and press <code>Enter</code></span>}
           </div>
         </div>
       )}
@@ -638,19 +641,24 @@ function HomeInner() {
                       data-tile={key}
                       className={'tile' + (off ? ' off' : '') + (activeTile === key ? ' touch-active' : '')}
                       style={{ background: bg, color: fg, height: tileW }}
-                      onTouchEnd={e => {
+                      onClick={() => {
                         if (activeTile !== key) {
-                          e.preventDefault();
                           setActiveTile(key);
                           activeTileRef.current = key;
                         } else {
-                          e.preventDefault();
                           setActiveTile(null);
                           activeTileRef.current = null;
                         }
                       }}
-                      onMouseLeave={() => {
-                        if (!isTouchDevice()) setActiveTile(null);
+                      onTouchEnd={e => {
+                        e.preventDefault();
+                        if (activeTile !== key) {
+                          setActiveTile(key);
+                          activeTileRef.current = key;
+                        } else {
+                          setActiveTile(null);
+                          activeTileRef.current = null;
+                        }
                       }}
                     >
                       <div className="notch" style={{ opacity: off ? 0.35 : 1 }}>
@@ -660,7 +668,7 @@ function HomeInner() {
                             const badge = aaa ? 'AAA ✓' : aa ? 'AA ✓' : 'AA ✗';
                             return (
                               <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                <span style={{ color: '#999', fontSize: 12, width: 38, flexShrink: 0 }}>{label}</span>
+                                <span style={{ color: 'var(--muted)', fontSize: 12, width: 38, flexShrink: 0 }}>{label}</span>
                                 <span style={{ fontSize: 12, fontWeight: 800, color, background: color + '22', padding: '1px 6px', borderRadius: 4 }}>{badge}</span>
                               </div>
                             );
@@ -736,6 +744,9 @@ function HomeInner() {
         };
         const compliantCombos    = combos.filter(c =>  c.passes).sort((a, b) => sortScore(a) - sortScore(b));
         const nonCompliantCombos = combos.filter(c => !c.passes);
+        const aaLargeOnlyCombos  = compliantCombos.filter(c => !c.aaSmall &&  c.aaLarge);
+        const aaSmallOnlyCombos  = compliantCombos.filter(c =>  c.aaSmall && !c.aaaSmall);
+        const aaaAllCombos       = compliantCombos.filter(c =>  c.aaaSmall);
 
         const Card = ({ combo, onCopy }) => (
           <div style={{
@@ -769,7 +780,7 @@ function HomeInner() {
                 const badge = aaa ? 'AAA ✓' : aa ? 'AA ✓' : 'AA ✗';
                 return (
                   <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
-                    <span style={{ color: '#999', fontSize: 11, width: 36, flexShrink: 0 }}>{label}</span>
+                    <span style={{ color: 'var(--muted)', fontSize: 11, width: 36, flexShrink: 0 }}>{label}</span>
                     <span style={{ fontSize: 11, fontWeight: 800, color, background: color + '22', padding: '1px 6px', borderRadius: 4 }}>{badge}</span>
                   </div>
                 );
@@ -806,7 +817,7 @@ function HomeInner() {
                 const badge = aaa ? 'AAA ✓' : aa ? 'AA ✓' : 'AA ✗';
                 return (
                   <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <span style={{ color: '#999', fontSize: 11, width: 36, flexShrink: 0 }}>{label}</span>
+                    <span style={{ color: 'var(--muted)', fontSize: 11, width: 36, flexShrink: 0 }}>{label}</span>
                     <span style={{ fontSize: 11, fontWeight: 800, color, background: color + '22', padding: '1px 6px', borderRadius: 4 }}>{badge}</span>
                   </div>
                 );
@@ -844,7 +855,7 @@ function HomeInner() {
                   ].map((items, colIdx) => (
                     <div key={colIdx} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {items.length === 0
-                        ? <div style={{ fontSize: 12, color: '#444', padding: '10px 0' }}>No combinations</div>
+                        ? <div style={{ fontSize: 12, color: 'var(--muted)', padding: '10px 0' }}>No combinations</div>
                         : items.map((combo, i) => <ComboRow key={i} combo={combo} />)
                       }
                     </div>
@@ -861,12 +872,48 @@ function HomeInner() {
 
         return (
           <>
-            <Section
-              title="Compliant Combinations"
-              sub={compliantCombos.length + ' combination' + (compliantCombos.length !== 1 ? 's' : '') + ' meet AA or AAA standards'}
-              list={compliantCombos}
-              showToggle
-            />
+            {compliantCombos.length > 0 && (() => {
+              const groups = [
+                { title: 'AAA Compliant — All Text',               sub: 'Meets AAA for all text sizes, no restrictions',              list: aaaAllCombos },
+                { title: 'AA Compliant — All Text, Partially AAA', sub: 'Meets AA for all text sizes and AAA for large text',          list: aaSmallOnlyCombos },
+                { title: 'AA Compliant — Large Text Only',         sub: 'Meets AA for large text only, not suitable for small text',   list: aaLargeOnlyCombos },
+              ].filter(g => g.list.length > 0);
+              return (
+                <div style={{ marginTop: 64 }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 32, flexWrap: 'wrap', gap: 12 }}>
+                    <div>
+                      <h2 style={{ fontSize: '1.6rem', fontWeight: 800, marginBottom: 6 }}>Compliant Combinations</h2>
+                      <p style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>{compliantCombos.length + ' combination' + (compliantCombos.length !== 1 ? 's' : '') + ' meet AA or AAA standards'}</p>
+                      <p style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: 4 }}>Large text is defined as 18pt (24px) or larger for regular weight, or 14pt (≈19px) or larger for bold.</p>
+                    </div>
+                    <TogglePill value={comboView} options={[{ value: 'grid', label: 'Card' }, { value: 'list', label: 'List' }]} onChange={setComboView} />
+                  </div>
+                  {comboView === 'list' ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(' + groups.length + ', 1fr)', gap: 24, alignItems: 'start' }}>
+                      {groups.map(({ title, sub, list }) => (
+                        <div key={title}>
+                          <h3 style={{ fontSize: '1rem', fontWeight: 800, marginBottom: 4 }}>{title}</h3>
+                          <p style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: 12 }}>{sub} · {list.length} combination{list.length !== 1 ? 's' : ''}</p>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            {list.map((combo, i) => <ComboRow key={i} combo={combo} />)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    groups.map(({ title, sub, list }) => (
+                      <div key={title} style={{ marginBottom: 48 }}>
+                        <h3 style={{ fontSize: '1rem', fontWeight: 800, marginBottom: 4 }}>{title}</h3>
+                        <p style={{ fontSize: '0.8rem', color: 'var(--muted)', marginBottom: 16 }}>{sub} · {list.length} combination{list.length !== 1 ? 's' : ''}</p>
+                        <div className="combo-grid">
+                          {list.map((combo, i) => <Card key={i} combo={combo} onCopy={copyHex} />)}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              );
+            })()}
             <Section
               title="Non-Compliant Combinations"
               sub={nonCompliantCombos.length + ' combination' + (nonCompliantCombos.length !== 1 ? 's' : '') + ' do not meet AA standards'}
