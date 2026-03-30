@@ -288,6 +288,8 @@ function HomeInner() {
     setError('');
     setInputVal('');
     setSourceUrl('');
+    setPickerColors(null);
+    setPickerSel(new Set());
     setTimeout(() => inputRef.current?.focus(), 0);
   };
 
